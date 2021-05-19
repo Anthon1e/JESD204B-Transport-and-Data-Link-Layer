@@ -23,13 +23,13 @@ Input data from converters are assumed to be concatenated, with least significan
 
 This design of JESD204B Transport Layer supports these following configurations. Note that all of them have been and can be tested by changing the parameter in the testbench:
 * Support 1-8 converters
-* Support converter resolution of 11-16
+* Support converter resolution of 10-16 bits
 * Support 1-8 lanes
 * Support 0-3 controls bits 
 
 Odd input parameters for lanes and converters are also supported. Lanes that are not entirely filled with samples will be filled with TT (tail bits) instead.  
 
-Converter resolution of 1-10 is supported as well, but it is usually not the case to have those resolutions. Therefore, they are omitted. 
+Converter resolution of 1-9 bits is supported as well, but it is usually not the case for a converter to have those resolutions. Therefore, they are omitted. 
 
 ## Constraints
 
