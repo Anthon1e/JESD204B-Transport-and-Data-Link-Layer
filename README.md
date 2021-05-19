@@ -26,7 +26,7 @@ This design of JESD204B Transport Layer supports these following configurations.
 * Support converter resolution of 11-16
 * Support 1-8 lanes
 * Support 0-3 controls bits 
-Note that, the sum of converter resolution and control bits need to be <= 16.
+Note that, sum of converter resolution and # of control bits need to be <= 16 and # of lanes are <= # of converters.
 
 ## Constraints
 
