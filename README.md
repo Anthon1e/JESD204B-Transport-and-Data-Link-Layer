@@ -4,7 +4,7 @@ This is an implementation of JESD204B transport layer written in Verilog. The in
 
 ## About JESD204B
 
-This is a serialized interface between data converters and logic devices. To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer. Note that, I have another repository on the implementation of 8B/10B Encoder/Decoder, which is part of Data Link Layer section.
+This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer. Note that, I have another repository on the implementation of 8B/10B Encoder/Decoder, which is part of Data Link Layer section.
 
 ## JESD204B Transport Layer
 
@@ -28,6 +28,8 @@ This design of JESD204B Transport Layer supports these following configurations.
 * Support 0-3 controls bits 
 
 Odd input parameters for lanes and converters are also supported. Lanes that are not entirely filled with samples will be filled with TT (tail bits) instead.  
+
+Converter resolution of 1-10 is supported as well, but it is usually not the case to have those resolutions. Therefore, they are omitted. 
 
 ## Constraints
 
