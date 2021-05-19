@@ -26,8 +26,10 @@ This design of JESD204B Transport Layer supports these following configurations.
 * Support converter resolution of 11-16
 * Support 1-8 lanes
 * Support 0-3 controls bits 
-Note that, sum of converter resolution and # of control bits need to be <= 16 and # of lanes are <= # of converters.
 
 ## Constraints
 
-The design assumes the sample size is 16 and each converter produces 1 sample per cycle for each frame, which is often to be the case. This limits the parameter of SAMPLE_SIZE and SAMPLES to be 16 and 1, though it can be changed in the code.  
+The design assumes the sample size is 16 and each converter produces 1 sample per cycle for each frame, which is often to be the case. This limits the parameter of SAMPLE_SIZE and SAMPLES to be 16 and 1, though it can be changed in the code. Furthermore, due to these 2 constraints, values we pick for other parameters need to follow this rule:
+* (Converter resolution + Control bits) ≤ 16
+* L (# of lanes) ≤ M (# of converters)
+
