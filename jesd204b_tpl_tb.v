@@ -32,8 +32,8 @@ module jesd204b_tpl_tb #(
     reg [SAMPLES*CONVERTERS*RESOLUTION-1:0] tx_datain;
     reg clock;
     
-    wire [SAMPLES*CONVERTERS*SAMPLE_SIZE-1:0] tx_dataout;
-    wire [(SAMPLES*CONVERTERS*SAMPLE_SIZE)/LANES-1:0] lane0, lane1, lane2, lane3;
+    wire [SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES))-1:0] tx_dataout;
+    wire [(SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES)))/LANES-1:0] lane0, lane1, lane2, lane3;
     assign {lane3, lane2, lane1, lane0} = tx_dataout;
 
     jesd204b_tpl #(
