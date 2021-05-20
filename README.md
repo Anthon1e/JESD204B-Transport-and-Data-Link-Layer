@@ -8,20 +8,22 @@ This is a serialized interface between data converters (ADC/DAC) and logic devic
 
 ## JESD204B Transport Layer
 
-The main purpose of JESD204B transport layer is to pack data based on link configurations:
+The main purpose of JESD204B transport layer is to pack data (Transmitter, Tx) or unpack it (Receiver, Rx) based on link configurations:
 *	It can add more information (control bits) about the transmitted data
-*	It arranges data into octets, then into frames, before sending it as parallel data
-The configuration is determined in the application layer, and will be passed to the transport layer as Verilog 'parameters' during module instantiation.
+*	For Tx: It arranges data into octets, then into frames, before sending it as parallel data to data link layer
+*	For Rx: It collects data from each frame and lane, before sending it to the back-end data processing stage
+
+The configuration is determined in the application layer in the Tx, and will be passed to the transport layer as Verilog 'parameters' during module instantiation.
 
 ## Design Specification
 
 The parameters that should be decided in application layer include L, M, N, N', CS, S (# of lanes, converters, resolution, sample size, control bits, samples). Further interpretation of this can be found in JEDEC specification. My design will determine TT (# of tail bits) and F (# of octets per frame) based on those configuration. 
 
-Input data from converters are assumed to be concatenated, with least significant #resolution bits represents data from converter 0. Output data from lanes are also concatenated into 1 single bus, with least significant bits represents lane 0. 
+For Tx, input data from converters are assumed to be concatenated, with least significant #resolution bits represents data from converter 0. Output data from lanes are also concatenated into 1 single bus, with least significant bits represents lane 0. The reverse is true for Rx devices.
 
 ## Key Features
 
-This design of JESD204B Transport Layer supports these following configurations. Note that all of them have been and can be tested by changing the parameter in the testbench:
+This design of JESD204B Transport Layer supports these following configurations. Note that all of them have been and can be tested by changing the parameter in the testbench file:
 * Support 1-8 converters
 * Support converter resolution of 10-16 bits
 * Support 1-8 lanes
@@ -37,3 +39,8 @@ The design assumes the sample size is 16 and each converter produces 1 sample pe
 * (Converter resolution + Control bits) ≤ 16
 * L (# of lanes) ≤ M (# of converters)
 
+## Reference 
+
+South Arlington. *JEDEC STANDARD: Serial Interface for Data Converters.* [Online] 2011. Available from: https://www.jedec.org/sites/default/files/docs/JESD204B.pdf
+
+Texas. *JESD204B Overview: Texas Instruments High Speed Data Converter Training.* [Online] 2016. Available from: https://www.ti.com/lit/pdf/slap161
