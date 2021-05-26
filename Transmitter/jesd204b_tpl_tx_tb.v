@@ -30,7 +30,7 @@ module jesd204b_tpl_tx_tb #(
     );
     
     reg [SAMPLES*CONVERTERS*RESOLUTION-1:0] tx_datain;
-    reg clock;
+    reg clock, reset;
     
     wire [SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES))-1:0] tx_dataout;
     wire [(SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES)))/LANES-1:0] lane0, lane1, lane2, lane3;
@@ -45,6 +45,8 @@ module jesd204b_tpl_tx_tb #(
         .SAMPLES (SAMPLES) 		
     ) DUT (
         .clk(clock),
+        .reset(reset),
+        .en(1),
         .tx_datain (tx_datain),
         .tx_dataout (tx_dataout)
 	);
@@ -62,11 +64,16 @@ module jesd204b_tpl_tx_tb #(
     end
     
     initial begin
+        #120; 
+        reset <= 1;
         #2; 
-        tx_datain ={11'h61b, 11'h71b, 11'h69b, 11'h65b,
+        reset <= 0;
+        tx_datain <={11'h61b, 11'h71b, 11'h69b, 11'h65b,
                     11'h63b, 11'h73b, 11'h6bb, 11'h67b};
-        
         #2;
+        tx_datain <={11'haaa, 11'h71b, 11'h69b, 11'hbbb,
+                    11'haaa, 11'h73b, 11'h6bb, 11'hbbb};
+        #4;
         $stop;
     end
 endmodule
