@@ -34,6 +34,8 @@ module jesd204b_tpl_tx #(
 		Output: Lane 0 with 4 octets will be tx_dataout[31:0]
 		        starting at Octet 0 [31:24] -> Octet 4 [7:0]          */
     input clk,
+    input reset,
+    input en,
 	input [SAMPLES*CONVERTERS*RESOLUTION-1:0] tx_datain,
 	output reg [SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES))-1:0] tx_dataout
 	); 
@@ -44,25 +46,30 @@ module jesd204b_tpl_tx #(
                         (LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES)))/(8*LANES) ;  // Number of octets per frame per lane
 	
 	/* Actual mapping of the transport layer */ 
-	integer i, j, k;   // represent lane index, octet index, converter index
+	integer i, j;
+	(* KEEP = "TRUE" *) reg [3:0] k;   // represent lane index, octet index, converter index
 	always @(posedge clk) begin 
-	   k = 0;
-        // Looping for each lane
-		for (i = 0; i < LANES; i = i+1) begin
-            // Looping for every 2 octets 
-			for (j = OCTETS; j > 0; j = j-2) begin
-                if (k < CONVERTERS) begin
-                    // Octet 0 or 2
-                    tx_dataout[i*8*OCTETS+(j-1)*8 +: 8] = tx_datain[k*RESOLUTION+RESOLUTION-8 +: 8];
-                    // Octet 1 or 3
-                    tx_dataout[i*8*OCTETS+(j-2)*8 +: 8] = tx_datain[k*RESOLUTION +: RESOLUTION-8] << (CONTROL+TAILS);	
-                    // Next converter index
-                    k = k + 1;	
-                end else begin 
-                    tx_dataout[i*8*OCTETS+(j-2)*8 +: 16] = 16'b0;
+        if (reset) begin 
+	       tx_dataout <= 0;
+        end else begin
+            k = 0;
+            // Looping for each lane
+            for (i = 0; i < LANES; i = i+1) begin
+                // Looping for every 2 octets 
+                for (j = OCTETS; j > 0; j = j-2) begin
+                    if (k < CONVERTERS) begin
+                        // Octet 0 or 2
+                        tx_dataout[i*8*OCTETS+(j-1)*8 +: 8] = tx_datain[k*RESOLUTION+RESOLUTION-8 +: 8];
+                        // Octet 1 or 3
+                        tx_dataout[i*8*OCTETS+(j-2)*8 +: 8] = tx_datain[k*RESOLUTION +: RESOLUTION-8] << (CONTROL+TAILS);	
+                        // Next converter index
+                        k = k + 1;	
+                    end else begin 
+                        tx_dataout[i*8*OCTETS+(j-2)*8 +: 16] = 16'b0;
+                    end
                 end
-			end
-		end
-	end
+            end
+        end
+    end
 	
 endmodule	
