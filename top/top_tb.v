@@ -23,31 +23,30 @@
 module top_tb #(
     parameter DATA_WIDTH = 64,
     parameter LANES = 4,           // Number of lanes in the link
-    parameter CONVERTERS = 4,      // Number of converters
-    parameter RESOLUTION = 11,     // Converter resolution
-    parameter CONTROL = 2,         // Number of control bit
-    parameter SAMPLE_SIZE = 16,    // Number of bits per sample
-    parameter SAMPLES = 1          // Number of samples per frame
-    );
+	parameter CONVERTERS = 4,      // Number of converters
+	parameter RESOLUTION = 11,     // Converter resolution
+	parameter CONTROL = 2,         // Number of control bit
+	parameter SAMPLE_SIZE = 16,    // Number of bits per sample
+	parameter SAMPLES = 1          // Number of samples per frame
+	);
     
-    reg clock, reset, en;
+    reg clock, reset;
     reg [SAMPLES*CONVERTERS*RESOLUTION-1:0] tx_datain;
     wire [SAMPLES*CONVERTERS*RESOLUTION-1:0] rx_dataout;
     
     top #(
-      .DATA_WIDTH (DATA_WIDTH),
-      .LANES (LANES), 
-      .CONVERTERS (CONVERTERS), 
-      .RESOLUTION (RESOLUTION),
-      .CONTROL (CONTROL),    
-      .SAMPLE_SIZE (SAMPLE_SIZE), 
-      .SAMPLES (SAMPLES) 
+    .DATA_WIDTH (DATA_WIDTH),
+    .LANES (LANES), 
+    .CONVERTERS (CONVERTERS), 
+    .RESOLUTION (RESOLUTION),
+    .CONTROL (CONTROL),    
+    .SAMPLE_SIZE (SAMPLE_SIZE), 
+    .SAMPLES (SAMPLES) 
     ) dut (
-      .clock (clock), 
-      .reset (reset), 
-      .en (en),
-      .tx_datain (tx_datain),
-      .rx_dataout (rx_dataout)
+    .clock (clock), 
+    .reset (reset), 
+    .tx_datain (tx_datain),
+    .rx_dataout (rx_dataout)
     );
     
     initial begin
@@ -64,28 +63,14 @@ module top_tb #(
     
     initial begin
         reset <= 1;
-        en <= 1;
         tx_datain <= 0;
         #2; 
         tx_datain <= 'h12345678_abc;
         reset <= 0;
         #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #2;
-        tx_datain <= tx_datain + 'h11111111_111;
-        #20;
-        $stop;
+        forever begin 
+            tx_datain <= tx_datain + 'h11111111_111;
+            #2;
+        end
     end
 endmodule
