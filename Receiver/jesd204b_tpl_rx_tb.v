@@ -21,20 +21,20 @@
 
 
 module jesd204b_tpl_rx_tb #(
-	parameter LANES = 4,		    // Number of lanes in the link
-	parameter CONVERTERS = 8,	  // Number of converters
+	parameter LANES = 4,		// Number of lanes in the link
+	parameter CONVERTERS = 8,	// Number of converters
 	parameter RESOLUTION = 11,	// Converter resolution
-	parameter CONTROL = 2, 		  // Number of control bit
+	parameter CONTROL = 2, 		// Number of control bit
 	parameter SAMPLE_SIZE = 16,	// Number of bits per sample
-	parameter SAMPLES = 1 		  // Number of samples per frame
+	parameter SAMPLES = 1 		// Number of samples per frame
     );
     
-    reg clock;
-    reg [SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES))-1:0] tx_datain;
+    reg clock, reset;
+    reg [SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES))-1:0] rx_datain;
     wire [(SAMPLES*SAMPLE_SIZE*(CONVERTERS+(LANES-CONVERTERS%LANES)*|(CONVERTERS%LANES)))/LANES-1:0] lane0, lane1, lane2, lane3;
-    assign {lane3, lane2, lane1, lane0} = tx_datain;    
+    assign {lane3, lane2, lane1, lane0} = rx_datain;    
     
-    wire [SAMPLES*CONVERTERS*RESOLUTION-1:0] tx_dataout;
+    wire [SAMPLES*CONVERTERS*RESOLUTION-1:0] rx_dataout;
 
     jesd204b_tpl_rx #(
         .LANES (LANES), 
@@ -45,8 +45,10 @@ module jesd204b_tpl_rx_tb #(
         .SAMPLES (SAMPLES) 		
     ) DUT (
         .clk(clock),
-        .tx_datain (tx_datain),
-        .tx_dataout (tx_dataout)
+        .reset(reset),
+        .en(1),
+        .rx_datain (rx_datain),
+        .rx_dataout (rx_dataout)
 	);
     
     initial begin
@@ -62,10 +64,12 @@ module jesd204b_tpl_rx_tb #(
     end
     
     initial begin
-        #2; 
-        tx_datain = 128'he360c360_cb60d360_e760c760_cf60d760;
-        
+        #120; 
+        reset <= 1;
         #2;
+        reset <= 0;
+        rx_datain <= 128'he360c360_cb60d360_e760c760_cf60d760;
+        #4;
         $stop;
     end
 endmodule
