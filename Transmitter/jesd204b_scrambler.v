@@ -22,7 +22,7 @@
 
 module jesd204b_scrambler #(
 	/* Parameters declaration */
-    parameter DATA_WIDTH = 128
+    parameter DATA_WIDTH = 64
     ) (
     input clk,
     input reset,
@@ -33,23 +33,33 @@ module jesd204b_scrambler #(
     
     // 1 for 8 highest-storage elements, rest are 0
     reg [14:0] storage = 'h7f80;
+    reg [14:0] state = 'h7f80;
     
     /* Looping through the input data bit, starting from MSB */
     integer i;
-    always @(posedge clk) begin
+    always @(*) begin
         if (reset) begin 
-            out <= 0;
-            storage <= 'h7f80;
+            out = 'h0;
+            storage = 'h7f80;
         end else begin
-            if (en) begin
-                for (i = DATA_WIDTH; i > 0; i = i - 1) begin 
-                    out[i-1] = in[i-1] ^ storage[14] ^ storage[13];
-                    // Replace LSB of storage with out, push the
-                    //  remaining to the right. Value of bit 0 is gone
-                    storage = {storage[13:0], out[i-1]}; 
+            storage = state;
+            if (in === 'hx) begin
+            end else begin
+                if (en) begin 
+                    for (i = DATA_WIDTH; i > 0; i = i - 1) begin 
+                        out[i-1] = in[i-1] ^ storage[14] ^ storage[13];
+                        // Replace LSB of storage with out, push the
+                        //  remaining to the right. Value of bit 0 is gone
+                        storage = {storage[13:0], out[i-1]}; 
+                    end
                 end
+                else out = in;
             end
-            else out <= in;
         end
+    end
+    
+    always @(posedge clk) begin 
+        if (reset)  state <= 'h7f80;
+        else        state <= storage;
     end
 endmodule
