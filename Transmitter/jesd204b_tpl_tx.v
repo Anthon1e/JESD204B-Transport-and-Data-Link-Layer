@@ -23,7 +23,7 @@
 module jesd204b_tpl_tx #(
 	/* Parameters declaration */
 	parameter LANES = 4,		// Number of lanes in the link
-	parameter CONVERTERS = 8,	// Number of converters
+	parameter CONVERTERS = 4,	// Number of converters
 	parameter RESOLUTION = 11,	// Converter resolution
 	parameter CONTROL = 2, 		// Number of control bit
 	parameter SAMPLE_SIZE = 16,	// Number of bits per sample
@@ -50,7 +50,7 @@ module jesd204b_tpl_tx #(
 	(* KEEP = "TRUE" *) reg [3:0] k;   // represent lane index, octet index, converter index
 	always @(posedge clk) begin 
         if (reset) begin 
-	       tx_dataout <= 0;
+	       tx_dataout = 0;
         end else begin
             k = 0;
             // Looping for each lane
