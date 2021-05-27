@@ -1,10 +1,10 @@
-# JESD204B-Transport-Layer
+# JESD204B Transport and Data Link Layer
 
 This is an implementation of JESD204B transport layer written in Verilog. The information and design is based off JEDEC JESD204B specification, which can be downloaded from [JEDEC](https://www.jedec.org/sites/default/files/docs/JESD204B.pdf) website.
 
 ## About JESD204B
 
-This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer and the optional Scramber/Descrambler block in the Data Link Layer. Note that, I have another repository on the implementation of 8B/10B Encoder/Decoder, which is part of Data Link Layer section.
+This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer, the optional Scramber/Descrambler block and the 8B/10B Encode in the Data Link Layer. Note that, there are still more to the Data Link Layer which deals with synchronization and alignment, but those are not discussed here.
 
 ## JESD204B Transport Layer
 
@@ -41,9 +41,13 @@ The design assumes the sample size is 16 and each converter produces 1 sample pe
 
 ## JESD204B Scrambler/Descrambler
 
-Scrambler is brought to use in the case when the data octet repeats from frame to frame, which would lead to spectral leaks causing electromagnetic inteference in sensitive devices. There are many other advantages of using a scrambler, however, it can lead to some downsides which is why the choice of using a scrambler is totally optional. 
+Scrambler is brought to use in the case when the data octet repeats from frame to frame, which would lead to spectral leaks causing electromagnetic interference in sensitive devices. There are many other advantages of using a scrambler, however, it can lead to some downsides which is why the choice of using a scrambler is totally optional. 
 
 JESD204 scrambler is designed based on the polynomials ![equation](https://latex.codecogs.com/gif.latex?%5Cinline%20%5Cdpi%7B100%7D%20%5Cbg_black%20%5Cfn_phv%201&plus;x%5E%7B14%7D&plus;x%5E%7B15%7D), and is of the self-synchronous type. I chose to use the serial implementation of the scrambler, of which 1 bit is scrambled at a time but the whole input would still finish in 1 clock cycle. This is different from the parallel implementation but would still lead to the same result. Further details are explained in the pdf.
+
+## JESD204B 8B/10B Encoder/Decoder
+
+The 8B/10B Encoding is a process to encode data (before transmitted) that allows clock recovery and is DC-balanced. Further details on this can be viewed in another repository of mine [here](https://github.com/Anthon1e/8B-10B-Encoder-Decoder). However, in that implementation I have only created a general 8B10B encoder/decoder. For the purpose of JESD204B design and data flow here I have made some changes to the file.
 
 ## Reference 
 
