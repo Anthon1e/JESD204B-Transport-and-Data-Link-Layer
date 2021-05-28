@@ -1,6 +1,6 @@
 # JESD204B Transport and Data Link Layer
 
-This is an implementation of JESD204B transport layer written in Verilog. The information and design is based off JEDEC JESD204B specification, which can be downloaded from [JEDEC](https://www.jedec.org/sites/default/files/docs/JESD204B.pdf) website.
+This is my personal project for an implementation of JESD204B transport layer written in Verilog. The information and design is based off JEDEC JESD204B specification, which can be downloaded from [JEDEC](https://www.jedec.org/sites/default/files/docs/JESD204B.pdf) website.
 
 ## About JESD204B
 
