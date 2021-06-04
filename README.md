@@ -1,10 +1,10 @@
 # JESD204B Transport and Data Link Layer
 
-This is my personal project for an implementation of JESD204B transport layer written in Verilog. The information and design is based off JEDEC JESD204B specification, which can be downloaded from [JEDEC](https://www.jedec.org/sites/default/files/docs/JESD204B.pdf) website.
+This is my personal project for an implementation of JESD204B transport layer and data link layer written in Verilog. The information and design is based off JEDEC JESD204B specification, which can be downloaded from [JEDEC](https://www.jedec.org/sites/default/files/docs/JESD204B.pdf) website.
 
 ## About JESD204B
 
-This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer, the optional Scramber/Descrambler block and the 8B/10B Encode in the Data Link Layer. Note that, there are still more to the Data Link Layer which deals with synchronization and alignment, but those are not discussed here.
+This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer, the optional Scramber/Descrambler block and the 8B/10B Encode in the Data Link Layer. Note that, there are still more to the Data Link Layer which deals with synchronization and alignment (CGS, ILAS, IFAS), but those are not ready and are still under-developed.
 
 ## JESD204B Transport Layer
 
