@@ -96,46 +96,187 @@ endmodule
 
 
 module jesd204b_dl_tx #(
-    parameter DATA_WIDTH = 8
+    parameter LANE_DATA_WIDTH = 8,
+    parameter OCTETS_PER_FR = 4,
+    parameter FRAMES_PER_MF = 8
     )(
     input clk,
     input reset,
     input LMFC,
-    input SYNC, 
-    input [DATA_WIDTH-1:0] in,
-    output reg [DATA_WIDTH-1:0] out
+    input sync_request, 
+    input [14*8-1:0] in_config,
+    input [LANE_DATA_WIDTH-1:0] in,
+    output reg [LANE_DATA_WIDTH-1:0] out,
+    output reg ilas_start
     );
+    
+    localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
     `define RST_T       4'b0000 // Restart state 
     `define CGS_INIT    4'b0001 
     `define CGS_CHECK   4'b0010 
     `define CGS_DATA    4'b0011 
-    `define STATE4      4'b0100 
-    `define STATE5      4'b0101 
+    `define FS_INIT     4'b0100 
+    `define FS_DATA     4'b0101 
     `define STATE6      4'b0110 
     `define STATE7      4'b0111 
     `define STATE8      4'b1000 
     `define STATE9      4'b1001 
     
-    reg [3:0] cs, ns;
+    reg CGS_done = 0;
+    reg ILAS_done = 0;
+    reg IFS_done = 0;
     
+    /* State machine for CGS */
+    reg [3:0] cgs_cs, cgs_ns;
+    reg [LANE_DATA_WIDTH-1:0] cgs_out;
     always @(posedge clk) begin
         if (reset) begin 
-            cs <= `RST_T;
-            ns <= `RST_T;
-            out <= in;
+            CGS_done <= 0; 
+            cgs_cs <= `RST_T;
+            cgs_ns <= `RST_T;
+            cgs_out <= 0;
         end else begin 
-            case (cs) 
-            `RST_T: begin if (~SYNC) ns = `CGS_INIT; end
-            `CGS_INIT: begin if (SYNC) ns = `CGS_CHECK; end
-            `CGS_CHECK: begin ns = `CGS_CHECK; end
+            case (cgs_cs) 
+            `RST_T: begin 
+                if (sync_request) 
+                    cgs_ns = `CGS_INIT; 
+                end
+            `CGS_INIT: begin 
+                if (~sync_request) begin
+                    CGS_done <= 1;
+                    cgs_ns = `CGS_INIT; 
+                end else begin 
+                    cgs_out <= {8'hBC};
+                end end
             endcase 
-            cs <= ns;
-            out <= in;
+            cgs_cs <= cgs_ns;
         end
     end
     
+    /* Elastic buffer to hold data from ADC, waiting for CGS & ILAS */
+    reg [7:0] ebuffer [0:255];
+    reg [7:0] eindex_in, eindex_out;
+    always @(posedge clk) begin
+        if (reset) begin
+            eindex_in <= 'h0;
+        end else begin
+            ebuffer[eindex_in] <= in;
+            eindex_in <= eindex_in + 1;
+        end
+    end
+    
+    /* State machine for ILAS */
+    reg [5:0] octet_count, mf_count;
+    reg [3:0] config_octet;
+    reg ilas_turn;
+    reg [LANE_DATA_WIDTH-1:0] ilas_out;
+    always @(posedge clk) begin
+        if (~CGS_done) begin
+            ILAS_done <= 0;
+            ilas_turn <= 0;
+            ilas_start <= 0;
+            octet_count <= 1;
+            mf_count <= 1; 
+            config_octet <= 0;
+        end else begin
+            if (LMFC) begin
+                ilas_start = 1;
+                ilas_turn <= 1; 
+            end if (ilas_start) begin 
+                // The 2nd frame is for configuration data
+                if (mf_count == 'h2) begin
+                    // Send R, start of frame
+                    if (octet_count == 'h1) begin 
+                        ilas_out <= 8'h1c; octet_count <= octet_count + 1; 
+                    // Send Q, second char of frame
+                    end else if (octet_count == 'h2) begin 
+                        ilas_out <= 8'h9c; octet_count <= octet_count + 1; 
+                    // Send configuration data
+                    end else if (('h2 < octet_count) && (octet_count < 'h10)) begin
+                        ilas_out <= in_config[config_octet*8+:8];
+                        config_octet <= config_octet + 1;
+                        octet_count <= octet_count + 1;
+                    // Send A, end of frame
+                    end else if (octet_count == OCTETS_PER_MF) begin 
+                        ilas_out <= 8'h7c; mf_count <= mf_count + 1; octet_count <= 1;
+                    // Send user data otherwise
+                    end else begin 
+                        ilas_out <= 8'hAA; octet_count <= octet_count + 1; end
+                // Rest of frames are the same 
+                end else begin 
+                    // Send R, start of frame
+                    if (octet_count == 'h1) begin 
+                        ilas_out <= 8'h1c; octet_count <= octet_count + 1; 
+                    // Send A, end of frame
+                    end else if (octet_count == OCTETS_PER_MF) begin 
+                        ilas_out <= 8'h7c; mf_count <= mf_count + 1; octet_count <= 1;
+                        if (mf_count == 'h4) ILAS_done <= 1;
+                    // Send user data otherwise
+                    end else begin 
+                        ilas_out <= 8'hAA; octet_count <= octet_count + 1; end
+                end
+            end
+        end
+    end
+    
+    /* State machine for User Data and Frame/Lane Alignment */
+    reg [6:0] octet_count_fr;
+    reg [LANE_DATA_WIDTH-1:0] data_prev_AF;
+    reg [LANE_DATA_WIDTH-1:0] ud_out;
+    reg ud_turn, last_one_replaced;
+    always @(posedge clk) begin
+        if (~ILAS_done) begin
+            ud_turn <= 0;
+            ud_out <= 0;
+            eindex_out <= 0;
+            octet_count_fr <= 0;
+            last_one_replaced <= 0;
+        end else begin
+            ud_turn <= 1;
+            // Character replacement for last octet in current frame
+            if ((octet_count_fr+1)%OCTETS_PER_FR == 0) begin
+                // Case when last octet in current frame equal one of previous frame
+                if (data_prev_AF == ebuffer[eindex_out] && ~last_one_replaced) begin
+                    // Case when current frame is the end of multiframe
+                    if (octet_count_fr == (OCTETS_PER_MF-1)) begin
+                        ud_out <= 'h7C;
+                        octet_count_fr <= 0;
+                    // Remaining cases
+                    end else begin
+                        ud_out <= 'hFC;
+                        octet_count_fr <= octet_count_fr + 1;
+                    end
+                    last_one_replaced <= 1;
+                // Case when it is not equal, or there is an alignment character last time
+                end else begin
+                    ud_out <= ebuffer[eindex_out];
+                    octet_count_fr <= octet_count_fr + 1;
+                    last_one_replaced <= 0;
+                end
+                eindex_out <= eindex_out + 1;
+                data_prev_AF <= ebuffer[eindex_out];
+            // No character replacement otherwise
+            end else begin 
+                ud_out <= ebuffer[eindex_out];
+                eindex_out <= eindex_out + 1;
+                octet_count_fr <= octet_count_fr + 1;
+            end
+        end
+    end
+    
+    /* Output assignment */
+    always @(*) begin
+        if (reset) begin
+            out = 0;
+        end else begin
+            if (ud_turn)        out = ud_out;
+            else if (ilas_turn) out = ilas_out;
+            else                out = cgs_out;
+        end
+    end
 endmodule
+
 
 
 `timescale 1ns / 1ps
