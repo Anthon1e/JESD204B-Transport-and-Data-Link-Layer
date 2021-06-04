@@ -21,56 +21,89 @@
 
 
 module jesd204b_dl #(
-    parameter DATA_WIDTH = 16,
-    parameter LANES = 2
+    parameter LANE_DATA_WIDTH = 8,
+    parameter LANES = 2,
+    parameter OCTETS_PER_FR = 4,
+    parameter FRAMES_PER_MF = 8
     )(
     input clk,
     input reset,
-    input [DATA_WIDTH-1:0] in,
-    output [DATA_WIDTH-1:0] out
+    input [14*8-1:0] in_config,
+    input [LANE_DATA_WIDTH*LANES-1:0] in,
+    output [LANE_DATA_WIDTH*LANES-1:0] out
     );
     
-    localparam LANE_DATA_WIDTH = DATA_WIDTH / LANES;
+    localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
-    wire [LANES-1:0] SYNC, LMFC;
-    wire [DATA_WIDTH-1:0] out_tx;
+    wire [LANES-1:0] sync_request, ilas_start;
+    wire [LANE_DATA_WIDTH*LANES-1:0] out_tx;
     
-    reg [LANES-1:0] SYNC_saved;
-    always @(*) begin
-        if (reset)  SYNC_saved = 'h0;
-        else        SYNC_saved = SYNC_saved | SYNC;
+    wire sync_request_all = |sync_request;
+    wire lane_rdy = &ilas_start;
+    
+    /* LMFC counter based on clock cycles */
+    /* LMFC = 10*F*K/SR, with SR = Serial Rate */
+    reg LMFC, LMFC_about_to_rise;
+    reg [4:0] LMFC_raise_counter;
+    always @(posedge clk) begin
+        if (reset) begin
+            LMFC <= 0;
+            LMFC_raise_counter <= 0;
+        end else begin
+            if (LMFC_raise_counter == 'h0) begin
+                LMFC_raise_counter <= LMFC_raise_counter + 1;
+                LMFC <= 1;
+                LMFC_about_to_rise <= 0;
+            end else if (LMFC_raise_counter == 'h1) begin 
+                LMFC_raise_counter <= LMFC_raise_counter + 1;
+                LMFC <= 0;
+            end else if (LMFC_raise_counter == 'h6) begin
+                LMFC_raise_counter <= 0;
+                LMFC_about_to_rise <= 1;
+            end else begin
+                LMFC_raise_counter <= LMFC_raise_counter + 1;
+            end
+        end
     end
-    wire all_SYNC = &SYNC_saved;
     
     generate 
     genvar i;
     for (i = 0; i < LANES; i = i + 1) begin
         jesd204b_dl_tx #(
-        .DATA_WIDTH (LANE_DATA_WIDTH)
+        .LANE_DATA_WIDTH (LANE_DATA_WIDTH),
+        .OCTETS_PER_FR (OCTETS_PER_FR),
+        .FRAMES_PER_MF (FRAMES_PER_MF)
         ) dltx (
         .clk (clk),
         .reset (reset),
-        .LMFC (LMFC[i]),
-        .SYNC (SYNC[i]), 
+        .LMFC (LMFC_about_to_rise),
+        .sync_request (sync_request_all),
+        .in_config (in_config), 
         .in (in[i*8+:8]),
-        .out (out_tx[i*8+:8])
+        .out (out_tx[i*8+:8]),
+        .ilas_start (ilas_start[i])
         );
         
         jesd204b_dl_rx #(
-        .DATA_WIDTH (LANE_DATA_WIDTH)
+        .LANE_DATA_WIDTH (LANE_DATA_WIDTH),
+        .OCTETS_PER_FR (OCTETS_PER_FR),
+        .FRAMES_PER_MF (FRAMES_PER_MF)
         ) dlrx (
         .clk (clk),
         .reset (reset),
-        .LMFC (LMFC[i]), 
-        .all_SYNC (all_SYNC),
+        .LMFC (LMFC_about_to_rise), 
+        .sync_request_all (sync_request_all),
+        .lane_rdy (lane_rdy),
         .valid (1),
         .in (out_tx[i*8+:8]),
         .out (out[i*8+:8]),
-        .SYNC (SYNC[i])
+        .sync_request (sync_request[i])
         );
     end
     endgenerate
+    
 endmodule
+
 
 
 `timescale 1ns / 1ps
@@ -147,7 +180,7 @@ module jesd204b_dl_tx #(
                     CGS_done <= 1;
                     cgs_ns = `CGS_INIT; 
                 end else begin 
-                    cgs_out <= {8'hBC};
+                    cgs_out <= 8'hBC;
                 end end
             endcase 
             cgs_cs <= cgs_ns;
@@ -278,7 +311,6 @@ module jesd204b_dl_tx #(
 endmodule
 
 
-
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // Company: 
@@ -302,101 +334,186 @@ endmodule
 
 
 module jesd204b_dl_rx #(
-    parameter DATA_WIDTH = 8
+    parameter LANE_DATA_WIDTH = 8,
+    parameter OCTETS_PER_FR = 4,
+    parameter FRAMES_PER_MF = 8
     )(
     input clk,
     input reset,
     input LMFC, 
-    // sync flag for ALL lane when 4 Ks are received
-    input all_SYNC,
-    // if data is valid based on disparity
+    // sync flag for ALL lanes when 4 Ks are received
+    input sync_request_all,
+    // aligned flag to release buffer on ALL lanes
+    input lane_rdy,
+    // if data is valid based on disparity, characters, etc..
     input valid,
-    input [DATA_WIDTH-1:0] in,
-    output reg [DATA_WIDTH-1:0] out,
+    input [LANE_DATA_WIDTH-1:0] in,
+    output reg [LANE_DATA_WIDTH-1:0] out,
     // sync flag of EACH lane when 4 Ks are received
-    output reg SYNC
+    output reg sync_request
     );
+    
+    reg CGS_done = 0;
     
     `define RST_T       4'b0000 // Restart state 
     `define CGS_INIT    4'b0001 
     `define CGS_CHECK   4'b0010 
     `define CGS_DATA    4'b0011 
-    `define STATE4      4'b0100 
-    `define STATE5      4'b0101 
+    `define FS_INIT     4'b0100 
+    `define FS_DATA     4'b0101 
     `define STATE6      4'b0110 
     `define STATE7      4'b0111 
     `define STATE8      4'b1000 
     `define STATE9      4'b1001 
     
-    reg [3:0] cs, ns;
+    /* State machine for CGS */
+    reg [3:0] cgs_cs, cgs_ns;
     reg [2:0] K_counter, I_counter, V_counter;
-        
     always @(posedge clk) begin
-        if (reset) begin 
+        if (reset) begin
+            cgs_cs <= `RST_T;
+            cgs_ns <= `RST_T; 
             out <= in;
-            SYNC <= 0;
-            cs <= `RST_T;
-            ns <= `RST_T;
-            K_counter <= 0;
+            sync_request <= 0;
         end else begin 
-            case (cs) 
+            case (cgs_cs) 
             // State after resetted
             `RST_T: begin 
-                SYNC <= 0; 
-                ns = `CGS_INIT; 
+                cgs_ns = `CGS_INIT; 
+                sync_request <= 0; 
+                K_counter <= 0;
+                CGS_done <= 0;
                 end
             // State for code group synchronization
             `CGS_INIT: begin 
                 I_counter <= 0;
                 V_counter <= 0;
+                sync_request <= 1;
                 if (in == 'hBC && valid) begin
-                    K_counter = K_counter + 1;
-                    if (K_counter == 'h4) begin
-                        ns = `CGS_CHECK;
-                        SYNC <= 1;
+                    K_counter <= K_counter + 1;
+                    if (K_counter == 'h3) begin
+                        cgs_ns = `CGS_CHECK;
+                        sync_request <= 0;
+                        if (LMFC)
+                            CGS_done <= 1;
                     end else
-                        ns = `CGS_INIT;
+                        cgs_ns = `CGS_INIT;
                 end else begin 
+                    cgs_ns = `CGS_INIT;
                     K_counter <= 0;
-                    ns = `CGS_INIT;
                 end end     
             // State to check for loss of synchronization
             `CGS_CHECK: begin
-                ns = `CGS_CHECK;
+                cgs_ns = `CGS_CHECK;
+                if (LMFC)
+                    CGS_done <= 1;
                 K_counter <= 0;
                 if (~valid) begin
                     V_counter <= 0; 
-                    I_counter = I_counter + 1;
-                    if (I_counter == 'h3) 
-                        ns = `CGS_INIT;
+                    I_counter <= I_counter + 1;
+                    if (I_counter == 'h2) 
+                        cgs_ns = `CGS_INIT;
                 end else begin
                     I_counter <= 0; 
-                    V_counter = V_counter + 1;
-                    if (I_counter == 'h4)
-                        ns = `CGS_DATA;
+                    V_counter <= V_counter + 1;
+                    if (I_counter == 'h3)
+                        cgs_ns = `CGS_DATA;
+                end end
+            // State when all CGS is done, preparing for next request
+            `CGS_DATA: begin
+                cgs_ns = `CGS_DATA;
+                if (LMFC)
+                    CGS_done <= 1;
+                if (~valid) begin
+                    cgs_ns = `CGS_CHECK;
                 end end
             endcase 
-            cs <= ns;
+            cgs_cs <= cgs_ns;
         end
     end
     
-    reg [7:0] ebuffer [0:63];
-    reg [6:0] eindex_in, eindex_out;
+    /* State machine for ILS and IFS */
+    reg [3:0] ifs_cs, ifs_ns;
+    reg [5:0] O_counter, prev_AF;
+    reg [LANE_DATA_WIDTH-1:0] data_prev_AF, ifs_out;
+    always @(posedge clk) begin
+        if (~CGS_done) begin
+            ifs_cs <= `FS_INIT;
+            ifs_ns <= `FS_INIT; 
+        end else begin
+            case (ifs_cs)
+            `FS_INIT: begin 
+                ifs_ns = `FS_INIT;
+                O_counter <= 0;
+                if (~sync_request && in !== 'hBC) begin
+                    ifs_ns = `FS_DATA;
+                    O_counter <= O_counter + 1;
+                end end
+            `FS_DATA: begin
+                ifs_ns = `FS_DATA;
+                O_counter <= O_counter + 1;
+                // Check alignment code, an A or F is received
+                if ((in == 'h7C) || (in == 'hFC)) begin
+                    // Replace alignment character
+                    ifs_out <= data_prev_AF;  
+                    // Frame alignment 
+                    if (O_counter == prev_AF)
+                        O_counter <= 0;
+                    if (valid || (O_counter == OCTETS_PER_FR))
+                        prev_AF <= O_counter; 
+                end 
+                // Save the value of the last octet in the previous frame
+                if (((O_counter+1)%OCTETS_PER_FR) == 0)
+                    data_prev_AF <= in;
+                end
+            endcase
+            ifs_cs <= ifs_ns;
+        end
+    end 
     
+    /* Elastic buffer to hold data, waiting for all lanes to synchronization */
+    reg [7:0] ebuffer [0:255];
+    reg [6:0] eindex_in, eindex_out;
+    reg release_buffer;
     always @(posedge clk) begin
         if (reset) begin
             eindex_in <= 'h0;
-            eindex_out <= 'h0;
-            out <= in;
+            release_buffer <= 0;
         end else begin
-            if (SYNC == 1) begin
-                ebuffer[eindex_in] = in;
+            if ((in !== 'hBC) && CGS_done) begin
+                ebuffer[eindex_in] <= in;
                 eindex_in <= eindex_in + 1;
-                if (all_SYNC == 1) begin 
-                    out = ebuffer[eindex_out];
-                    eindex_out <= eindex_out + 1;
-                end
-            end else out <= in;
+                release_buffer <= 1;
+            end else 
+                release_buffer <= 0;
+        end
+    end
+    
+    /* State machine for User Data and Lane alignment */
+    reg [LANE_DATA_WIDTH-1:0] ud_out;
+    reg ud_turn;
+    always @(posedge clk) begin
+        if (reset) begin
+            ud_out <= 'h0;
+            eindex_out <= 'h0;
+            ud_turn <= 0;
+        end else begin
+            if (release_buffer) begin
+                ud_out <= ebuffer[eindex_out];
+                eindex_out <= eindex_out + 1;
+                ud_turn <= 1;
+            end
+        end
+    end
+    
+    always @(*) begin
+        if (reset) begin
+            out <= 0;
+        end else begin
+            if (~ud_turn)   
+                out <= 'hBC;                
+            else
+                out <= ud_out;
         end
     end
 endmodule
@@ -425,18 +542,26 @@ endmodule
 
 
 module jesd204b_dl_tb #(
-    parameter DATA_WIDTH = 16
+    parameter LANE_DATA_WIDTH = 8,
+    parameter LANES = 2,
+    parameter OCTETS_PER_FR = 4,
+    parameter FRAMES_PER_MF = 8
     );
     
     reg clock, reset;
-    reg [DATA_WIDTH-1:0] in;
-    wire [DATA_WIDTH-1:0] out;
+    reg [14*8-1:0] in_config;
+    reg [LANE_DATA_WIDTH*LANES-1:0] in;
+    wire [LANE_DATA_WIDTH*LANES-1:0] out;
     
     jesd204b_dl #(
-    .DATA_WIDTH (DATA_WIDTH)
+    .LANE_DATA_WIDTH (LANE_DATA_WIDTH),
+    .LANES (LANES),
+    .OCTETS_PER_FR (OCTETS_PER_FR),
+    .FRAMES_PER_MF (FRAMES_PER_MF)
     ) dut (
     .clk (clock),
     .reset (reset),
+    .in_config (in_config),
     .in (in),
     .out (out)
     );
@@ -457,26 +582,9 @@ module jesd204b_dl_tb #(
         reset <= 1; 
         #2; 
         reset <= 0;
-        in <= 'h30BC;
-        #6; 
-        in <= 'h0402;
-        #2;
-        in <= 'hBCBC;
-        #2; 
-        in <= 'hBC28;
-        #2;
-        in <= 'hBCBC;
-        #2;
-        in <= 'hBCBC;
-        #2;
-        in <= 'h15BC;
-        #2;
-        in <= 'h11BC;
-        #2; 
-        in <= 'hAABB;
-        #2;
-        in <= 'h2802;
-        #6;
+        in_config <= 112'h77_77_77_77_88_88_88_88_77_77_77_77_88_88;
+        in <= 16'hEDBA;
+        #500;
         $stop;
     end
 endmodule
