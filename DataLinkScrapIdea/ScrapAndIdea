@@ -140,10 +140,11 @@ module jesd204b_dl_tx #(
     input reset,
     input LMFC,
     input sync_request, 
+    input scramble_enable,
     input [14*8-1:0] in_config,
     input [LANE_DATA_WIDTH-1:0] in,
     output reg [LANE_DATA_WIDTH-1:0] out,
-    output reg ilas_start
+    output reg ctrl_out
     );
     
     localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
@@ -166,12 +167,14 @@ module jesd204b_dl_tx #(
     /* State machine for CGS */
     reg [3:0] cgs_cs, cgs_ns;
     reg [LANE_DATA_WIDTH-1:0] cgs_out;
+    reg cgs_ctrl_out;
     always @(posedge clk) begin
         if (reset) begin 
             CGS_done <= 0; 
             cgs_cs <= `RST_T;
             cgs_ns <= `RST_T;
             cgs_out <= 0;
+            cgs_ctrl_out <= 1;
         end else begin 
             case (cgs_cs) 
             `RST_T: begin 
@@ -205,7 +208,7 @@ module jesd204b_dl_tx #(
     /* State machine for ILAS */
     reg [5:0] octet_count, mf_count;
     reg [3:0] config_octet;
-    reg ilas_turn;
+    reg ilas_turn, ilas_start, ilas_ctrl_out;
     reg [LANE_DATA_WIDTH-1:0] ilas_out;
     always @(posedge clk) begin
         if (~CGS_done) begin
@@ -215,6 +218,7 @@ module jesd204b_dl_tx #(
             octet_count <= 1;
             mf_count <= 1; 
             config_octet <= 0;
+            ilas_ctrl_out <= 0;
         end else begin
             if (LMFC) begin
                 ilas_start = 1;
@@ -224,33 +228,36 @@ module jesd204b_dl_tx #(
                 if (mf_count == 'h2) begin
                     // Send R, start of frame
                     if (octet_count == 'h1) begin 
-                        ilas_out <= 8'h1c; octet_count <= octet_count + 1; 
+                        ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send Q, second char of frame
                     end else if (octet_count == 'h2) begin 
-                        ilas_out <= 8'h9c; octet_count <= octet_count + 1; 
+                        ilas_out <= 8'h9c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send configuration data
                     end else if (('h2 < octet_count) && (octet_count < 'h10)) begin
                         ilas_out <= in_config[config_octet*8+:8];
+                        ilas_ctrl_out <= 0;
                         config_octet <= config_octet + 1;
                         octet_count <= octet_count + 1;
                     // Send A, end of frame
                     end else if (octet_count == OCTETS_PER_MF) begin 
-                        ilas_out <= 8'h7c; mf_count <= mf_count + 1; octet_count <= 1;
+                        ilas_out <= 8'h7c; ilas_ctrl_out <= 1; 
+                        mf_count <= mf_count + 1; octet_count <= 1;
                     // Send user data otherwise
                     end else begin 
-                        ilas_out <= 8'hAA; octet_count <= octet_count + 1; end
+                        ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
                 // Rest of frames are the same 
-                end else begin 
+                end else if (mf_count < 'h5) begin 
                     // Send R, start of frame
                     if (octet_count == 'h1) begin 
-                        ilas_out <= 8'h1c; octet_count <= octet_count + 1; 
+                        ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send A, end of frame
                     end else if (octet_count == OCTETS_PER_MF) begin 
-                        ilas_out <= 8'h7c; mf_count <= mf_count + 1; octet_count <= 1;
+                        ilas_out <= 8'h7c; ilas_ctrl_out <= 1; 
+                        mf_count <= mf_count + 1; octet_count <= 1;
                         if (mf_count == 'h4) ILAS_done <= 1;
                     // Send user data otherwise
                     end else begin 
-                        ilas_out <= 8'hAA; octet_count <= octet_count + 1; end
+                        ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
                 end
             end
         end
@@ -260,11 +267,12 @@ module jesd204b_dl_tx #(
     reg [6:0] octet_count_fr;
     reg [LANE_DATA_WIDTH-1:0] data_prev_AF;
     reg [LANE_DATA_WIDTH-1:0] ud_out;
-    reg ud_turn, last_one_replaced;
+    reg ud_turn, ud_ctrl_out, last_one_replaced;
     always @(posedge clk) begin
         if (~ILAS_done) begin
             ud_turn <= 0;
             ud_out <= 0;
+            ud_ctrl_out <= 0; 
             eindex_out <= 0;
             octet_count_fr <= 0;
             last_one_replaced <= 0;
@@ -272,32 +280,56 @@ module jesd204b_dl_tx #(
             ud_turn <= 1;
             // Character replacement for last octet in current frame
             if ((octet_count_fr+1)%OCTETS_PER_FR == 0) begin
-                // Case when last octet in current frame equal one of previous frame
-                if (data_prev_AF == ebuffer[eindex_out] && ~last_one_replaced) begin
-                    // Case when current frame is the end of multiframe
-                    if (octet_count_fr == (OCTETS_PER_MF-1)) begin
-                        ud_out <= 'h7C;
-                        octet_count_fr <= 0;
-                    // Remaining cases
+                // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+                if (~scramble_enable) begin 
+                    if (data_prev_AF == ebuffer[eindex_out]) begin
+                        // Case when current frame is the end of a multiframe
+                        if (octet_count_fr == (OCTETS_PER_MF-1)) begin
+                            ud_out <= 'h7C;
+                            ud_ctrl_out <= 1;
+                            last_one_replaced <= 1;
+                        // Case when current frame is not the end of a multiframe
+                        end else if (~last_one_replaced) begin
+                            ud_out <= 'hFC;
+                            ud_ctrl_out <= 1;
+                            last_one_replaced <= 1;
+                        end else begin 
+                            ud_out <= ebuffer[eindex_out];
+                            ud_ctrl_out <= 0;
+                            last_one_replaced <= 0;
+                        end
+                    // Case when last octet in current frame not equal that of previous frame
                     end else begin
-                        ud_out <= 'hFC;
-                        octet_count_fr <= octet_count_fr + 1;
+                        ud_out <= ebuffer[eindex_out];
+                        ud_ctrl_out <= 0;
+                        last_one_replaced <= 0;
                     end
-                    last_one_replaced <= 1;
-                // Case when it is not equal, or there is an alignment character last time
+                    eindex_out <= eindex_out + 1;
+                    data_prev_AF <= ebuffer[eindex_out];
+                // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
                 end else begin
-                    ud_out <= ebuffer[eindex_out];
-                    octet_count_fr <= octet_count_fr + 1;
-                    last_one_replaced <= 0;
+                    ud_out <= ebuffer[eindex_out]; 
+                    eindex_out <= eindex_out + 1;
+                    if (octet_count_fr == (OCTETS_PER_MF-1)) begin
+                        if (ebuffer[eindex_out] == 'h7C)
+                            ud_ctrl_out <= 1;
+                        else 
+                            ud_ctrl_out <= 0;
+                    end else if (ebuffer[eindex_out] == 'hFC)
+                        ud_ctrl_out <= 1;
+                    else
+                        ud_ctrl_out <= 0;
                 end
-                eindex_out <= eindex_out + 1;
-                data_prev_AF <= ebuffer[eindex_out];
             // No character replacement otherwise
-            end else begin 
+            end else begin
                 ud_out <= ebuffer[eindex_out];
+                ud_ctrl_out <= 0; 
                 eindex_out <= eindex_out + 1;
+            // Increment the octet counter or reset it
+            end if (octet_count_fr == (OCTETS_PER_MF-1))
+                octet_count_fr <= 0;
+            else 
                 octet_count_fr <= octet_count_fr + 1;
-            end
         end
     end
     
@@ -306,9 +338,9 @@ module jesd204b_dl_tx #(
         if (reset) begin
             out = 0;
         end else begin
-            if (ud_turn)        out = ud_out;
-            else if (ilas_turn) out = ilas_out;
-            else                out = cgs_out;
+            if (ud_turn) begin          out = ud_out;   ctrl_out = ud_ctrl_out;     end
+            else if (ilas_turn) begin   out = ilas_out; ctrl_out = ilas_ctrl_out;   end
+            else begin                  out = cgs_out;  ctrl_out = cgs_ctrl_out;    end
         end
     end
 endmodule
