@@ -28,6 +28,7 @@ module jesd204b_dl #(
     )(
     input clk,
     input reset,
+    input scramble_enable,
     input [14*8-1:0] in_config,
     input [LANE_DATA_WIDTH*LANES-1:0] in,
     output [LANE_DATA_WIDTH*LANES-1:0] out
@@ -35,16 +36,18 @@ module jesd204b_dl #(
     
     localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
-    wire [LANES-1:0] sync_request, ilas_start;
+    wire [LANES-1:0] sync_request, ctrl_out_tx;
     wire [LANE_DATA_WIDTH*LANES-1:0] out_tx;
     
     wire sync_request_all = |sync_request;
-    wire lane_rdy = &ilas_start;
     
-    /* LMFC counter based on clock cycles */
-    /* LMFC = 10*F*K/SR, with SR = Serial Rate */
+    /* LMFC counter based on clock cycles 
+        Eqn: LMFC = 10*F*K/SR, with SR = Serial Rate  
+        Assumption: SR = 10 Gb/s, 1 clk cycle = 1 ns  
+        => LMFC cycles = (10*F*K)/(SR*2e-9)         */
     reg LMFC, LMFC_about_to_rise;
     reg [4:0] LMFC_raise_counter;
+    localparam LMFC_CYCLES = 10*OCTETS_PER_FR*FRAMES_PER_MF/10;
     always @(posedge clk) begin
         if (reset) begin
             LMFC <= 0;
@@ -57,7 +60,7 @@ module jesd204b_dl #(
             end else if (LMFC_raise_counter == 'h1) begin 
                 LMFC_raise_counter <= LMFC_raise_counter + 1;
                 LMFC <= 0;
-            end else if (LMFC_raise_counter == 'h6) begin
+            end else if (LMFC_raise_counter == (LMFC_CYCLES-1)) begin
                 LMFC_raise_counter <= 0;
                 LMFC_about_to_rise <= 1;
             end else begin
@@ -78,10 +81,11 @@ module jesd204b_dl #(
         .reset (reset),
         .LMFC (LMFC_about_to_rise),
         .sync_request (sync_request_all),
+        .scramble_enable (scramble_enable),
         .in_config (in_config), 
         .in (in[i*8+:8]),
         .out (out_tx[i*8+:8]),
-        .ilas_start (ilas_start[i])
+        .ctrl_out (ctrl_out_tx[i])
         );
         
         jesd204b_dl_rx #(
@@ -93,7 +97,7 @@ module jesd204b_dl #(
         .reset (reset),
         .LMFC (LMFC_about_to_rise), 
         .sync_request_all (sync_request_all),
-        .lane_rdy (lane_rdy),
+        .scramble_enable (scramble_enable),
         .valid (1),
         .in (out_tx[i*8+:8]),
         .out (out[i*8+:8]),
@@ -103,7 +107,6 @@ module jesd204b_dl #(
     endgenerate
     
 endmodule
-
 
 
 `timescale 1ns / 1ps
