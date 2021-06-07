@@ -601,7 +601,7 @@ module jesd204b_dl_tb #(
     parameter FRAMES_PER_MF = 8
     );
     
-    reg clock, reset;
+    reg clock, reset, scramble_enable;
     reg [14*8-1:0] in_config;
     reg [LANE_DATA_WIDTH*LANES-1:0] in;
     wire [LANE_DATA_WIDTH*LANES-1:0] out;
@@ -614,6 +614,7 @@ module jesd204b_dl_tb #(
     ) dut (
     .clk (clock),
     .reset (reset),
+    .scramble_enable (scramble_enable),
     .in_config (in_config),
     .in (in),
     .out (out)
@@ -631,13 +632,25 @@ module jesd204b_dl_tb #(
         end
     end
     
+    initial begin
+        #120;
+        #2;
+        in <= 16'h0102;
+        #50; 
+        forever begin 
+            in <= in + {2{8'h01}};
+            #50;
+        end
+    end
+    
     initial begin 
-        reset <= 1; 
+        #120;
+        reset <= 1;
+        scramble_enable <= 0;
+        in_config <= 112'h77_77_77_77_88_88_88_88_77_77_77_77_88_88; 
         #2; 
         reset <= 0;
-        in_config <= 112'h77_77_77_77_88_88_88_88_77_77_77_77_88_88;
-        in <= 16'hEDBA;
-        #500;
+        #1000;
         $stop;
     end
 endmodule
