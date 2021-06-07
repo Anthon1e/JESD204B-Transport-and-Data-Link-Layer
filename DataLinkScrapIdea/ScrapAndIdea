@@ -378,8 +378,7 @@ module jesd204b_dl_rx #(
     input LMFC, 
     // sync flag for ALL lanes when 4 Ks are received
     input sync_request_all,
-    // aligned flag to release buffer on ALL lanes
-    input lane_rdy,
+    input scramble_enable,
     // if data is valid based on disparity, characters, etc..
     input valid,
     input [LANE_DATA_WIDTH-1:0] in,
@@ -388,7 +387,7 @@ module jesd204b_dl_rx #(
     output reg sync_request
     );
     
-    reg CGS_done = 0;
+    localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
     `define RST_T       4'b0000 // Restart state 
     `define CGS_INIT    4'b0001 
@@ -401,6 +400,8 @@ module jesd204b_dl_rx #(
     `define STATE8      4'b1000 
     `define STATE9      4'b1001 
     
+    reg CGS_done = 0;
+    
     /* State machine for CGS */
     reg [3:0] cgs_cs, cgs_ns;
     reg [2:0] K_counter, I_counter, V_counter;
@@ -408,7 +409,6 @@ module jesd204b_dl_rx #(
         if (reset) begin
             cgs_cs <= `RST_T;
             cgs_ns <= `RST_T; 
-            out <= in;
             sync_request <= 0;
         end else begin 
             case (cgs_cs) 
@@ -469,38 +469,53 @@ module jesd204b_dl_rx #(
     
     /* State machine for ILS and IFS */
     reg [3:0] ifs_cs, ifs_ns;
-    reg [5:0] O_counter, prev_AF;
-    reg [LANE_DATA_WIDTH-1:0] data_prev_AF, ifs_out;
+    reg [5:0] O_counter;
+    reg [LANE_DATA_WIDTH-1:0] ifs_out;
+    reg [LANE_DATA_WIDTH-1:0] data_prev_AF, data_prev_AF2;
+    reg ifs_turn;
     always @(posedge clk) begin
-        if (~CGS_done) begin
+        if (sync_request) begin
             ifs_cs <= `FS_INIT;
             ifs_ns <= `FS_INIT; 
         end else begin
             case (ifs_cs)
             `FS_INIT: begin 
-                ifs_ns = `FS_INIT;
-                O_counter <= 0;
-                if (~sync_request && in !== 'hBC) begin
+                if (in == 'hBC) begin
+                    ifs_ns = `FS_INIT;
+                    O_counter <= 0;
+                end else begin
                     ifs_ns = `FS_DATA;
                     O_counter <= O_counter + 1;
+                    ifs_out <= in;
+                    ifs_turn <= 1; 
                 end end
             `FS_DATA: begin
                 ifs_ns = `FS_DATA;
-                O_counter <= O_counter + 1;
+                if (O_counter == OCTETS_PER_MF-1)
+                    O_counter <= 0;
+                else 
+                    O_counter <= O_counter + 1;
                 // Check alignment code, an A or F is received
-                if ((in == 'h7C) || (in == 'hFC)) begin
-                    // Replace alignment character
-                    ifs_out <= data_prev_AF;  
-                    // Frame alignment 
-                    if (O_counter == prev_AF)
-                        O_counter <= 0;
-                    if (valid || (O_counter == OCTETS_PER_FR))
-                        prev_AF <= O_counter; 
+                // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+                if (~scramble_enable) begin 
+                    if ((in == 'h7C) || (in == 'hFC)) begin
+                        // Replace alignment character with previous octet
+                        if ((data_prev_AF == 'h7C) || (data_prev_AF == 'hFC)) 
+                            ifs_out <= data_prev_AF2;  
+                        else 
+                            ifs_out <= data_prev_AF;
+                    end else begin
+                        // Keep it as it is
+                        ifs_out <= in;
+                    // Save the value of the last octet in the previous frame
+                    end if (((O_counter+1)%OCTETS_PER_FR) == 0) begin
+                        data_prev_AF <= in;
+                        data_prev_AF2 <= data_prev_AF;
+                    end
+                // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
+                end else  
+                    ifs_out <= in;
                 end 
-                // Save the value of the last octet in the previous frame
-                if (((O_counter+1)%OCTETS_PER_FR) == 0)
-                    data_prev_AF <= in;
-                end
             endcase
             ifs_cs <= ifs_ns;
         end
@@ -515,8 +530,8 @@ module jesd204b_dl_rx #(
             eindex_in <= 'h0;
             release_buffer <= 0;
         end else begin
-            if ((in !== 'hBC) && CGS_done) begin
-                ebuffer[eindex_in] <= in;
+            if (ifs_turn) begin
+                ebuffer[eindex_in] <= ifs_out;
                 eindex_in <= eindex_in + 1;
                 release_buffer <= 1;
             end else 
@@ -526,29 +541,32 @@ module jesd204b_dl_rx #(
     
     /* State machine for User Data and Lane alignment */
     reg [LANE_DATA_WIDTH-1:0] ud_out;
-    reg ud_turn;
+    reg ud_turn, ud_start;
     always @(posedge clk) begin
-        if (reset) begin
+        if (~release_buffer) begin
             ud_out <= 'h0;
             eindex_out <= 'h0;
             ud_turn <= 0;
+            ud_start <= 0; 
         end else begin
-            if (release_buffer) begin
+            if (LMFC) begin
+                ud_start = 1; 
+            end if (ud_start) begin
                 ud_out <= ebuffer[eindex_out];
                 eindex_out <= eindex_out + 1;
-                ud_turn <= 1;
+                ud_turn <= 1; 
             end
         end
     end
     
     always @(*) begin
         if (reset) begin
-            out <= 0;
+            out = 0;
         end else begin
             if (~ud_turn)   
-                out <= 'hBC;                
+                out = 'hBC;                
             else
-                out <= ud_out;
+                out = ud_out;
         end
     end
 endmodule
