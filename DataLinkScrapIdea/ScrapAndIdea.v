@@ -96,7 +96,6 @@ module jesd204b_dl #(
         .clk (clk),
         .reset (reset),
         .LMFC (LMFC_about_to_rise), 
-        .sync_request_all (sync_request_all),
         .scramble_enable (scramble_enable),
         .valid (1),
         .in (out_tx[i*8+:8]),
@@ -162,39 +161,39 @@ module jesd204b_dl_tx #(
     
     reg CGS_done = 0;
     reg ILAS_done = 0;
-    reg IFS_done = 0;
     
     /* State machine for CGS */
-    reg [3:0] cgs_cs, cgs_ns;
+    reg [3:0] cgs_cs;
     reg [LANE_DATA_WIDTH-1:0] cgs_out;
     reg cgs_ctrl_out;
     always @(posedge clk) begin
         if (reset) begin 
             CGS_done <= 0; 
             cgs_cs <= `RST_T;
-            cgs_ns <= `RST_T;
             cgs_out <= 0;
             cgs_ctrl_out <= 1;
         end else begin 
             case (cgs_cs) 
             `RST_T: begin 
                 if (sync_request) 
-                    cgs_ns = `CGS_INIT; 
+                    cgs_cs <= `CGS_INIT; 
                 end
             `CGS_INIT: begin 
                 if (~sync_request) begin
                     CGS_done <= 1;
-                    cgs_ns = `CGS_INIT; 
+                    cgs_cs <= `CGS_INIT; 
                 end else begin 
                     cgs_out <= 8'hBC;
                 end end
+            `CGS_CHECK: begin
+                cgs_cs <= `CGS_CHECK;
+                end
             endcase 
-            cgs_cs <= cgs_ns;
         end
     end
     
     /* Elastic buffer to hold data from ADC, waiting for CGS & ILAS */
-    reg [7:0] ebuffer [0:255];
+    reg [LANE_DATA_WIDTH-1:0] ebuffer [0:255];
     reg [7:0] eindex_in, eindex_out;
     always @(posedge clk) begin
         if (reset) begin
@@ -206,67 +205,89 @@ module jesd204b_dl_tx #(
     end
     
     /* State machine for ILAS */
-    reg [5:0] octet_count, mf_count;
-    reg [3:0] config_octet;
-    reg ilas_turn, ilas_start, ilas_ctrl_out;
+    reg [4:0] octet_count;
+    reg [3:0] config_octet, mf_count;
+    reg ilas_turn, ilas_ctrl_out;
     reg [LANE_DATA_WIDTH-1:0] ilas_out;
     always @(posedge clk) begin
         if (~CGS_done) begin
             ILAS_done <= 0;
             ilas_turn <= 0;
-            ilas_start <= 0;
-            octet_count <= 1;
+            octet_count <= 0;
             mf_count <= 1; 
             config_octet <= 0;
             ilas_ctrl_out <= 0;
         end else begin
-            if (LMFC) begin
-                ilas_start = 1;
+            if (LMFC || ilas_turn) begin
                 ilas_turn <= 1; 
-            end if (ilas_start) begin 
-                // The 2nd frame is for configuration data
-                if (mf_count == 'h2) begin
+                case (mf_count)
+                'h2: begin
                     // Send R, start of frame
-                    if (octet_count == 'h1) begin 
+                    if (octet_count == 'h0) begin 
                         ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send Q, second char of frame
-                    end else if (octet_count == 'h2) begin 
+                    end else if (octet_count == 'h1) begin 
                         ilas_out <= 8'h9c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send configuration data
-                    end else if (('h2 < octet_count) && (octet_count < 'h10)) begin
+                    end else if (('h1 < octet_count) && (octet_count < 'hf)) begin
                         ilas_out <= in_config[config_octet*8+:8];
                         ilas_ctrl_out <= 0;
                         config_octet <= config_octet + 1;
                         octet_count <= octet_count + 1;
                     // Send A, end of frame
-                    end else if (octet_count == OCTETS_PER_MF) begin 
+                    end else if (octet_count == (OCTETS_PER_MF-1)) begin 
                         ilas_out <= 8'h7c; ilas_ctrl_out <= 1; 
-                        mf_count <= mf_count + 1; octet_count <= 1;
+                        mf_count <= mf_count + 1; octet_count <= 0;
                     // Send user data otherwise
                     end else begin 
                         ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
+                    end 
                 // Rest of frames are the same 
-                end else if (mf_count < 'h5) begin 
+                'h1: begin 
                     // Send R, start of frame
-                    if (octet_count == 'h1) begin 
+                    if (octet_count == 'h0) begin 
                         ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send A, end of frame
-                    end else if (octet_count == OCTETS_PER_MF) begin 
+                    end else if (octet_count == (OCTETS_PER_MF-1)) begin 
                         ilas_out <= 8'h7c; ilas_ctrl_out <= 1; 
-                        mf_count <= mf_count + 1; octet_count <= 1;
-                        if (mf_count == 'h4) ILAS_done <= 1;
+                        mf_count <= mf_count + 1; octet_count <= 0;
                     // Send user data otherwise
                     end else begin 
                         ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
-                end
+                    end
+                'h3: begin 
+                    // Send R, start of frame
+                    if (octet_count == 'h0) begin 
+                        ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
+                    // Send A, end of frame
+                    end else if (octet_count == (OCTETS_PER_MF-1)) begin 
+                        ilas_out <= 8'h7c; ilas_ctrl_out <= 1; 
+                        mf_count <= mf_count + 1; octet_count <= 0;
+                    // Send user data otherwise
+                    end else begin 
+                        ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
+                    end
+                'h4: begin 
+                    // Send R, start of frame
+                    if (octet_count == 'h0) begin 
+                        ilas_out <= 8'h1c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
+                    // Send A, end of frame
+                    end else if (octet_count == (OCTETS_PER_MF-1)) begin 
+                        ilas_out <= 8'h7c; ilas_ctrl_out <= 1; ILAS_done <= 1;
+                        mf_count <= mf_count + 1; octet_count <= 0;
+                    // Send user data otherwise
+                    end else begin 
+                        ilas_out <= 8'hAA; ilas_ctrl_out <= 0; octet_count <= octet_count + 1; end
+                    end
+                endcase
             end
         end
     end
     
     /* State machine for User Data and Frame/Lane Alignment */
-    reg [6:0] octet_count_fr;
+    reg [4:0] octet_count_fr;
     reg [LANE_DATA_WIDTH-1:0] data_prev_AF;
-    reg [LANE_DATA_WIDTH-1:0] ud_out;
+    reg [LANE_DATA_WIDTH-1:0] ud_out, next_ud_out;
     reg ud_turn, ud_ctrl_out, last_one_replaced;
     always @(posedge clk) begin
         if (~ILAS_done) begin
@@ -282,7 +303,7 @@ module jesd204b_dl_tx #(
             if ((octet_count_fr+1)%OCTETS_PER_FR == 0) begin
                 // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
                 if (~scramble_enable) begin 
-                    if (data_prev_AF == ebuffer[eindex_out]) begin
+                    if (data_prev_AF == next_ud_out) begin
                         // Case when current frame is the end of a multiframe
                         if (octet_count_fr == (OCTETS_PER_MF-1)) begin
                             ud_out <= 'h7C;
@@ -326,7 +347,9 @@ module jesd204b_dl_tx #(
                 ud_ctrl_out <= 0; 
                 eindex_out <= eindex_out + 1;
             // Increment the octet counter or reset it
-            end if (octet_count_fr == (OCTETS_PER_MF-1))
+            end 
+            next_ud_out <= ebuffer[eindex_out+1];
+            if (octet_count_fr == (OCTETS_PER_MF-1))
                 octet_count_fr <= 0;
             else 
                 octet_count_fr <= octet_count_fr + 1;
@@ -376,8 +399,6 @@ module jesd204b_dl_rx #(
     input clk,
     input reset,
     input LMFC, 
-    // sync flag for ALL lanes when 4 Ks are received
-    input sync_request_all,
     input scramble_enable,
     // if data is valid based on disparity, characters, etc..
     input valid,
@@ -400,24 +421,20 @@ module jesd204b_dl_rx #(
     `define STATE8      4'b1000 
     `define STATE9      4'b1001 
     
-    reg CGS_done = 0;
-    
     /* State machine for CGS */
-    reg [3:0] cgs_cs, cgs_ns;
+    reg [3:0] cgs_cs;
     reg [2:0] K_counter, I_counter, V_counter;
     always @(posedge clk) begin
         if (reset) begin
             cgs_cs <= `RST_T;
-            cgs_ns <= `RST_T; 
             sync_request <= 0;
         end else begin 
             case (cgs_cs) 
             // State after resetted
             `RST_T: begin 
-                cgs_ns = `CGS_INIT; 
+                cgs_cs <= `CGS_INIT; 
                 sync_request <= 0; 
                 K_counter <= 0;
-                CGS_done <= 0;
                 end
             // State for code group synchronization
             `CGS_INIT: begin 
@@ -427,48 +444,42 @@ module jesd204b_dl_rx #(
                 if (in == 'hBC && valid) begin
                     K_counter <= K_counter + 1;
                     if (K_counter == 'h3) begin
-                        cgs_ns = `CGS_CHECK;
+                        cgs_cs <= `CGS_CHECK;
                         sync_request <= 0;
-                        if (LMFC)
-                            CGS_done <= 1;
                     end else
-                        cgs_ns = `CGS_INIT;
+                        cgs_cs <= `CGS_INIT;
                 end else begin 
-                    cgs_ns = `CGS_INIT;
+                    cgs_cs <= `CGS_INIT;
                     K_counter <= 0;
                 end end     
             // State to check for loss of synchronization
             `CGS_CHECK: begin
-                cgs_ns = `CGS_CHECK;
-                if (LMFC)
-                    CGS_done <= 1;
+                cgs_cs <= `CGS_CHECK;
                 K_counter <= 0;
                 if (~valid) begin
                     V_counter <= 0; 
                     I_counter <= I_counter + 1;
                     if (I_counter == 'h2) 
-                        cgs_ns = `CGS_INIT;
+                        cgs_cs <= `CGS_INIT;
                 end else begin
                     I_counter <= 0; 
                     V_counter <= V_counter + 1;
                     if (I_counter == 'h3)
-                        cgs_ns = `CGS_DATA;
+                        cgs_cs <= `CGS_DATA;
                 end end
             // State when all CGS is done, preparing for next request
             `CGS_DATA: begin
-                cgs_ns = `CGS_DATA;
-                if (LMFC)
-                    CGS_done <= 1;
-                if (~valid) begin
-                    cgs_ns = `CGS_CHECK;
-                end end
+                if (~valid)
+                    cgs_cs <= `CGS_CHECK;
+                else 
+                    cgs_cs <= `CGS_DATA;
+                end
             endcase 
-            cgs_cs <= cgs_ns;
         end
     end
     
     /* State machine for ILS and IFS */
-    reg [3:0] ifs_cs, ifs_ns;
+    reg [3:0] ifs_cs;
     reg [5:0] O_counter;
     reg [LANE_DATA_WIDTH-1:0] ifs_out;
     reg [LANE_DATA_WIDTH-1:0] data_prev_AF, data_prev_AF2;
@@ -476,21 +487,20 @@ module jesd204b_dl_rx #(
     always @(posedge clk) begin
         if (sync_request) begin
             ifs_cs <= `FS_INIT;
-            ifs_ns <= `FS_INIT; 
+            O_counter <= 0;
         end else begin
             case (ifs_cs)
             `FS_INIT: begin 
                 if (in == 'hBC) begin
-                    ifs_ns = `FS_INIT;
-                    O_counter <= 0;
+                    ifs_cs <= `FS_INIT;
                 end else begin
-                    ifs_ns = `FS_DATA;
+                    ifs_cs <= `FS_DATA;
                     O_counter <= O_counter + 1;
                     ifs_out <= in;
                     ifs_turn <= 1; 
                 end end
             `FS_DATA: begin
-                ifs_ns = `FS_DATA;
+                ifs_cs <= `FS_DATA;
                 if (O_counter == OCTETS_PER_MF-1)
                     O_counter <= 0;
                 else 
@@ -517,13 +527,12 @@ module jesd204b_dl_rx #(
                     ifs_out <= in;
                 end 
             endcase
-            ifs_cs <= ifs_ns;
         end
     end 
     
     /* Elastic buffer to hold data, waiting for all lanes to synchronization */
-    reg [7:0] ebuffer [0:255];
-    reg [6:0] eindex_in, eindex_out;
+    reg [LANE_DATA_WIDTH-1:0] ebuffer [0:255];
+    reg [7:0] eindex_in, eindex_out;
     reg release_buffer;
     always @(posedge clk) begin
         if (reset) begin
