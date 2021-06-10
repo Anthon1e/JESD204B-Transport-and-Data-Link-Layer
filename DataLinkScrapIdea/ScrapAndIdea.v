@@ -31,13 +31,14 @@ module jesd204b_dl #(
     input scramble_enable,
     input [14*8-1:0] in_config,
     input [LANE_DATA_WIDTH*LANES-1:0] in,
-    output [LANE_DATA_WIDTH*LANES-1:0] out
+    output [LANE_DATA_WIDTH*LANES-1:0] out_tx,
+    output [LANE_DATA_WIDTH*LANES-1:0] out,
+    output reg LMFC
     );
     
     localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
     wire [LANES-1:0] sync_request, ctrl_out_tx;
-    wire [LANE_DATA_WIDTH*LANES-1:0] out_tx;
     
     wire sync_request_all = |sync_request;
     
@@ -45,7 +46,7 @@ module jesd204b_dl #(
         Eqn: LMFC = 10*F*K/SR, with SR = Serial Rate  
         Assumption: SR = 10 Gb/s, 1 clk cycle = 1 ns  
         => LMFC cycles = (10*F*K)/(SR*2e-9)         */
-    reg LMFC, LMFC_about_to_rise;
+    reg LMFC_about_to_rise;
     reg [4:0] LMFC_raise_counter;
     localparam LMFC_CYCLES = 10*OCTETS_PER_FR*FRAMES_PER_MF/10;
     always @(posedge clk) begin
@@ -229,7 +230,7 @@ module jesd204b_dl_tx #(
                     end else if (octet_count == 'h1) begin 
                         ilas_out <= 8'h9c; ilas_ctrl_out <= 1; octet_count <= octet_count + 1; 
                     // Send configuration data
-                    end else if (('h1 < octet_count) && (octet_count < 'hf)) begin
+                    end else if (('h1 < octet_count) && (octet_count < 'h10)) begin
                         ilas_out <= in_config[config_octet*8+:8];
                         ilas_ctrl_out <= 0;
                         config_octet <= config_octet + 1;
@@ -346,9 +347,9 @@ module jesd204b_dl_tx #(
                 ud_out <= ebuffer[eindex_out];
                 ud_ctrl_out <= 0; 
                 eindex_out <= eindex_out + 1;
-            // Increment the octet counter or reset it
             end 
             next_ud_out <= ebuffer[eindex_out+1];
+            // Increment the octet counter or reset it
             if (octet_count_fr == (OCTETS_PER_MF-1))
                 octet_count_fr <= 0;
             else 
@@ -357,16 +358,38 @@ module jesd204b_dl_tx #(
     end
     
     /* Output assignment */
-    always @(*) begin
+    always @(posedge clk) begin
         if (reset) begin
-            out = 0;
+            out <= 0;
         end else begin
-            if (ud_turn) begin          out = ud_out;   ctrl_out = ud_ctrl_out;     end
-            else if (ilas_turn) begin   out = ilas_out; ctrl_out = ilas_ctrl_out;   end
-            else begin                  out = cgs_out;  ctrl_out = cgs_ctrl_out;    end
+            if (ud_turn) begin          out <= ud_out;   ctrl_out <= ud_ctrl_out;   end
+            else if (ilas_turn) begin   out <= ilas_out; ctrl_out <= ilas_ctrl_out; end
+            else begin                  out <= cgs_out;  ctrl_out <= cgs_ctrl_out;  end
         end
     end
 endmodule
+
+
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 06/01/2021 08:12:08 AM
+// Design Name: 
+// Module Name: jesd204b_dl_rx
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
 
 
 `timescale 1ns / 1ps
@@ -555,12 +578,9 @@ module jesd204b_dl_rx #(
         if (~release_buffer) begin
             ud_out <= 'h0;
             eindex_out <= 'h0;
-            ud_turn <= 0;
             ud_start <= 0; 
         end else begin
-            if (LMFC) begin
-                ud_start = 1; 
-            end if (ud_start) begin
+            if (LMFC || ud_turn) begin
                 ud_out <= ebuffer[eindex_out];
                 eindex_out <= eindex_out + 1;
                 ud_turn <= 1; 
@@ -568,14 +588,14 @@ module jesd204b_dl_rx #(
         end
     end
     
-    always @(*) begin
+    always @(posedge clk) begin
         if (reset) begin
-            out = 0;
+            out <= 'hBC;
         end else begin
             if (~ud_turn)   
-                out = 'hBC;                
+                out <= 'hBC;                
             else
-                out = ud_out;
+                out <= ud_out;
         end
     end
 endmodule
@@ -613,7 +633,8 @@ module jesd204b_dl_tb #(
     reg clock, reset, scramble_enable;
     reg [14*8-1:0] in_config;
     reg [LANE_DATA_WIDTH*LANES-1:0] in;
-    wire [LANE_DATA_WIDTH*LANES-1:0] out;
+    wire [LANE_DATA_WIDTH*LANES-1:0] out, out_tx;
+    wire LMFC;
     
     jesd204b_dl #(
     .LANE_DATA_WIDTH (LANE_DATA_WIDTH),
@@ -626,7 +647,9 @@ module jesd204b_dl_tb #(
     .scramble_enable (scramble_enable),
     .in_config (in_config),
     .in (in),
-    .out (out)
+    .out_tx (out_tx),
+    .out (out),
+    .LMFC (LMFC)
     );
     
     initial begin
