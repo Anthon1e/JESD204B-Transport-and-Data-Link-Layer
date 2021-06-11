@@ -165,13 +165,11 @@ module jesd204b_dl_tx #(
     
     /* State machine for CGS */
     reg [3:0] cgs_cs;
-    reg [LANE_DATA_WIDTH-1:0] cgs_out;
     reg cgs_ctrl_out;
     always @(posedge clk) begin
         if (reset) begin 
             CGS_done <= 0; 
             cgs_cs <= `RST_T;
-            cgs_out <= 0;
             cgs_ctrl_out <= 1;
         end else begin 
             case (cgs_cs) 
@@ -183,8 +181,6 @@ module jesd204b_dl_tx #(
                 if (~sync_request) begin
                     CGS_done <= 1;
                     cgs_cs <= `CGS_INIT; 
-                end else begin 
-                    cgs_out <= 8'hBC;
                 end end
             `CGS_CHECK: begin
                 cgs_cs <= `CGS_CHECK;
@@ -194,8 +190,8 @@ module jesd204b_dl_tx #(
     end
     
     /* Elastic buffer to hold data from ADC, waiting for CGS & ILAS */
-    reg [LANE_DATA_WIDTH-1:0] ebuffer [0:255];
-    reg [7:0] eindex_in, eindex_out;
+    reg [LANE_DATA_WIDTH-1:0] ebuffer [0:63];
+    reg [5:0] eindex_in, eindex_out;
     always @(posedge clk) begin
         if (reset) begin
             eindex_in <= 'h0;
@@ -298,13 +294,14 @@ module jesd204b_dl_tx #(
             eindex_out <= 0;
             octet_count_fr <= 0;
             last_one_replaced <= 0;
+            next_ud_out <= ebuffer[eindex_out];
         end else begin
             ud_turn <= 1;
             // Character replacement for last octet in current frame
             if ((octet_count_fr+1)%OCTETS_PER_FR == 0) begin
                 // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-                if (~scramble_enable) begin 
-                    if (data_prev_AF == next_ud_out) begin
+                case (scramble_enable)
+                'b0: begin if (data_prev_AF == next_ud_out) begin
                         // Case when current frame is the end of a multiframe
                         if (octet_count_fr == (OCTETS_PER_MF-1)) begin
                             ud_out <= 'h7C;
@@ -316,35 +313,36 @@ module jesd204b_dl_tx #(
                             ud_ctrl_out <= 1;
                             last_one_replaced <= 1;
                         end else begin 
-                            ud_out <= ebuffer[eindex_out];
+                            ud_out <= next_ud_out;
                             ud_ctrl_out <= 0;
                             last_one_replaced <= 0;
                         end
                     // Case when last octet in current frame not equal that of previous frame
                     end else begin
-                        ud_out <= ebuffer[eindex_out];
+                        ud_out <= next_ud_out;
                         ud_ctrl_out <= 0;
                         last_one_replaced <= 0;
                     end
                     eindex_out <= eindex_out + 1;
-                    data_prev_AF <= ebuffer[eindex_out];
+                    data_prev_AF <= next_ud_out; end
                 // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
-                end else begin
-                    ud_out <= ebuffer[eindex_out]; 
+                'b1: begin
+                    ud_out <= next_ud_out; 
                     eindex_out <= eindex_out + 1;
                     if (octet_count_fr == (OCTETS_PER_MF-1)) begin
-                        if (ebuffer[eindex_out] == 'h7C)
+                        if (next_ud_out == 'h7C)
                             ud_ctrl_out <= 1;
                         else 
                             ud_ctrl_out <= 0;
-                    end else if (ebuffer[eindex_out] == 'hFC)
+                    end else if (next_ud_out == 'hFC)
                         ud_ctrl_out <= 1;
                     else
                         ud_ctrl_out <= 0;
-                end
+                end 
+                endcase
             // No character replacement otherwise
             end else begin
-                ud_out <= ebuffer[eindex_out];
+                ud_out <= next_ud_out;
                 ud_ctrl_out <= 0; 
                 eindex_out <= eindex_out + 1;
             end 
@@ -360,36 +358,14 @@ module jesd204b_dl_tx #(
     /* Output assignment */
     always @(posedge clk) begin
         if (reset) begin
-            out <= 0;
+            out <= 'hBC;
         end else begin
             if (ud_turn) begin          out <= ud_out;   ctrl_out <= ud_ctrl_out;   end
             else if (ilas_turn) begin   out <= ilas_out; ctrl_out <= ilas_ctrl_out; end
-            else begin                  out <= cgs_out;  ctrl_out <= cgs_ctrl_out;  end
+            else begin                  out <= 'hBC;  ctrl_out <= cgs_ctrl_out;     end
         end
     end
 endmodule
-
-
-`timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 06/01/2021 08:12:08 AM
-// Design Name: 
-// Module Name: jesd204b_dl_rx
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
 
 
 `timescale 1ns / 1ps
@@ -509,6 +485,7 @@ module jesd204b_dl_rx #(
     reg ifs_turn;
     always @(posedge clk) begin
         if (sync_request) begin
+            ifs_out <= 'hBC;
             ifs_cs <= `FS_INIT;
             O_counter <= 0;
         end else begin
@@ -573,12 +550,12 @@ module jesd204b_dl_rx #(
     
     /* State machine for User Data and Lane alignment */
     reg [LANE_DATA_WIDTH-1:0] ud_out;
-    reg ud_turn, ud_start;
+    reg ud_turn;
     always @(posedge clk) begin
         if (~release_buffer) begin
-            ud_out <= 'h0;
+            ud_out <= 'hBC;
             eindex_out <= 'h0;
-            ud_start <= 0; 
+            ud_turn <= 0; 
         end else begin
             if (LMFC || ud_turn) begin
                 ud_out <= ebuffer[eindex_out];
@@ -592,10 +569,7 @@ module jesd204b_dl_rx #(
         if (reset) begin
             out <= 'hBC;
         end else begin
-            if (~ud_turn)   
-                out <= 'hBC;                
-            else
-                out <= ud_out;
+            out <= ud_out;
         end
     end
 endmodule
@@ -676,13 +650,13 @@ module jesd204b_dl_tb #(
     end
     
     initial begin 
-        #120;
         reset <= 1;
         scramble_enable <= 0;
         in_config <= 112'h77_77_77_77_88_88_88_88_77_77_77_77_88_88; 
-        #2; 
+        #120;
         reset <= 0;
         #1000;
         $stop;
     end
 endmodule
+
