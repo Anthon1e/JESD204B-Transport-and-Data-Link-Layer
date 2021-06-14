@@ -1,0 +1,89 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 06/14/2021 01:58:38 PM
+// Design Name: 
+// Module Name: jesd204b_dl_framemark
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module jesd204b_dl_framemark #(
+    parameter LANE_DATA_WIDTH = 32,
+    parameter OCTET_PER_SENT = 4,
+    parameter OCTETS_PER_FR = 5,
+    parameter FRAMES_PER_MF = 4
+    )(
+    input clk,
+    input reset,
+    input LMFC,
+    output reg [OCTET_PER_SENT-1:0] sof,
+    output reg [OCTET_PER_SENT-1:0] eof,
+    output reg [OCTET_PER_SENT-1:0] som,
+    output reg [OCTET_PER_SENT-1:0] eom
+    );
+    
+    reg [5:0] octet_counter, frame_counter;
+    reg start_marking;
+    
+    integer i;
+    always @(posedge clk) begin
+        if (reset) begin
+            {sof, eof, som, eom} <= {4{4'b0}};
+            start_marking <= 0;
+            octet_counter <= OCTETS_PER_FR; 
+            frame_counter <= FRAMES_PER_MF;
+        end else begin
+            if (LMFC || start_marking) begin
+                start_marking <= 1;
+                
+                for (i = 0; i < 4; i = i + 1) begin
+                    if (octet_counter == OCTETS_PER_FR) begin
+                        octet_counter = octet_counter - 1;
+                        sof[i] = 1;
+                        eof[i] = 0;
+                        if (frame_counter == FRAMES_PER_MF) begin
+                            som[i] = 1;
+                            eom[i] = 0;
+                        end else begin 
+                            som[i] = 0;
+                            eom[i] = 0;
+                        end
+                    end else if (octet_counter == 1) begin
+                        octet_counter = OCTETS_PER_FR;
+                        sof[i] = 0;
+                        eof[i] = 1;
+                        if (frame_counter == 1) begin
+                            frame_counter = FRAMES_PER_MF;
+                            som[i] = 0;
+                            eom[i] = 1;
+                        end else begin 
+                            frame_counter = frame_counter - 1;
+                            som[i] = 0;
+                            eom[i] = 0;
+                        end 
+                    end else begin
+                        octet_counter = octet_counter - 1;
+                        sof[i] = 0;
+                        eof[i] = 0;
+                        som[i] = 0;
+                        eom[i] = 0; 
+                    end 
+                end
+                             
+            end 
+        end
+    end
+endmodule
