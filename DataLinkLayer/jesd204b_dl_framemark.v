@@ -29,8 +29,8 @@ module jesd204b_dl_framemark #(
     input clk,
     input reset,
     input LMFC,
-    output reg [OCTET_PER_SENT-1:0] eof_h2,
-    output reg [OCTET_PER_SENT-1:0] eom_h2,
+    output reg [OCTET_PER_SENT-1:0] eof_h,
+    output reg [OCTET_PER_SENT-1:0] eom_h,
     output reg [OCTET_PER_SENT-1:0] sof,
     output reg [OCTET_PER_SENT-1:0] eof,
     output reg [OCTET_PER_SENT-1:0] som,
@@ -43,19 +43,19 @@ module jesd204b_dl_framemark #(
     reg start_marking;
     
     reg [OCTET_PER_SENT-1:0] sof_h;
-    reg [OCTET_PER_SENT-1:0] eof_h;
+    //reg [OCTET_PER_SENT-1:0] eof_h;
     reg [OCTET_PER_SENT-1:0] som_h;
-    reg [OCTET_PER_SENT-1:0] eom_h;
+    //reg [OCTET_PER_SENT-1:0] eom_h;
 	reg [OCTET_PER_SENT-1:0] sof_h2;
-	//reg [OCTET_PER_SENT-1:0] eof_h2;
+	reg [OCTET_PER_SENT-1:0] eof_h2;
 	reg [OCTET_PER_SENT-1:0] som_h2;
-	//reg [OCTET_PER_SENT-1:0] eom_h2;
+	reg [OCTET_PER_SENT-1:0] eom_h2;
 	
 	wire [OCTETS_PER_FR-1:0] sof_t = {{(OCTETS_PER_FR-2){1'b0}}, 1'b1};
 	wire [OCTETS_PER_FR-1:0] eof_t = {1'b1, {(OCTETS_PER_FR-1){1'b0}}};
 	wire [OCTETS_PER_MF-1:0] som_t = {{(OCTETS_PER_MF-2){1'b0}}, 1'b1};
     wire [OCTETS_PER_MF-1:0] eom_t = {1'b1, {(OCTETS_PER_MF-1){1'b0}}};
-	
+    
     integer i;
     always @(posedge clk) begin
         if (reset) begin
@@ -66,29 +66,57 @@ module jesd204b_dl_framemark #(
         end else begin
             if (LMFC || start_marking) begin
                 start_marking <= 1;
-                // Checking eof and sof
-                if ((octet_counter+4) < OCTETS_PER_FR) begin 
-                    octet_counter <= octet_counter + 4;
-                    sof_h <= sof_t[octet_counter+:4];
-                    eof_h <= eof_t[octet_counter+:4];
-                end else if ((octet_counter+4) == OCTETS_PER_FR) begin 
-                    octet_counter <= 0;
-                    sof_h <= sof_t[octet_counter+:4];
-                    eof_h <= eof_t[octet_counter+:4];
-                end else if ((octet_counter+3) == OCTETS_PER_FR) begin
+                
+                /* Checking eof and sof */ 
+                if (OCTETS_PER_FR == 'h3) begin
+                    if (octet_counter == 0) begin 
+                        octet_counter <= octet_counter + 1;
+                        sof_h <= 4'b1001;
+                        eof_h <= 4'b0100;
+                    end else if (octet_counter == 1) begin 
+                        octet_counter <= octet_counter + 1;
+                        sof_h <= 4'b0100;
+                        eof_h <= 4'b0010;
+                    end else begin 
+                        octet_counter <= 0;
+                        sof_h <= 4'b0010;
+                        eof_h <= 4'b1001;
+                    end
+                end else if (OCTETS_PER_FR == 'h2) begin 
+                        sof_h <= 4'b0101;
+                        eof_h <= 4'b1010;
+                end else if (OCTETS_PER_FR == 'h1) begin
                     octet_counter <= 1;
-                    sof_h <= {sof_t[0], sof_t[octet_counter+:3]};
-                    eof_h <= {eof_t[0], eof_t[octet_counter+:3]};
-                end else if ((octet_counter+2) == OCTETS_PER_FR) begin
-                    octet_counter <= 2;
-                    sof_h <= {sof_t[1:0], sof_t[octet_counter+:2]};
-                    eof_h <= {eof_t[1:0], eof_t[octet_counter+:2]};
-                end else if ((octet_counter+1) == OCTETS_PER_FR) begin
-                    octet_counter <= 3;
-                    sof_h <= {sof_t[2:0], sof_t[octet_counter+:1]};
-                    eof_h <= {eof_t[2:0], eof_t[octet_counter+:1]};
+                    sof_h <= 4'b1111;
+                    eof_h <= 4'b1111;
+                end else if (OCTETS_PER_FR > 'h4) begin 
+                    if ((octet_counter+4) < OCTETS_PER_FR) begin 
+                        octet_counter <= octet_counter + 4;
+                        sof_h <= sof_t[octet_counter+:4];
+                        eof_h <= eof_t[octet_counter+:4];
+                    end else if ((octet_counter+4) == OCTETS_PER_FR) begin 
+                        octet_counter <= 0;
+                        sof_h <= sof_t[octet_counter+:4];
+                        eof_h <= eof_t[octet_counter+:4];
+                    end else if ((octet_counter+3) == OCTETS_PER_FR) begin
+                        octet_counter <= 1;
+                        sof_h <= {sof_t[0], sof_t[octet_counter+:3]};
+                        eof_h <= {eof_t[0], eof_t[octet_counter+:3]};
+                    end else if ((octet_counter+2) == OCTETS_PER_FR) begin
+                        octet_counter <= 2;
+                        sof_h <= {sof_t[1:0], sof_t[octet_counter+:2]};
+                        eof_h <= {eof_t[1:0], eof_t[octet_counter+:2]};
+                    end else if ((octet_counter+1) == OCTETS_PER_FR) begin
+                        octet_counter <= 3;
+                        sof_h <= {sof_t[2:0], sof_t[octet_counter+:1]};
+                        eof_h <= {eof_t[2:0], eof_t[octet_counter+:1]};
+                    end
+                end else begin 
+                    sof_h <= 4'b0001;
+                    eof_h <= 4'b1000;
                 end
-                // Checking eom and som
+                
+                /* Checking eom and som */
                 if ((octet_counter_fr+4) < OCTETS_PER_MF) begin 
                     octet_counter_fr <= octet_counter_fr + 4;
                     som_h <= som_t[octet_counter_fr+:4];
