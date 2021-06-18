@@ -143,18 +143,67 @@ module jesd204b_dl_rx #(
                 // Check alignment code, an A or F is received
                 // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
                 if (~scramble_enable) begin 
-                    for (i = 0; i < 4; i = i + 1) begin
-                        if ((in[i*8+:8] == 8'h7C) || (in[i*8+:8] == 8'hFC)) begin
-                            if ((last_octet == 8'h7C) || (last_octet == 8'hFC))
-                                ifs_out[i*8+:8] <= last_octet_2;
-                            else 
-                                ifs_out[i*8+:8] <= last_octet;
-                        end else
-                            ifs_out[i*8+:8] <= in[i*8+:8];    
-                        // save the octet of previous frame
-                        if (eof[i]) begin
-                            last_octet <= in[i*8+:8];
-                            last_octet_2 <= last_octet;
+                    if (OCTETS_PER_FR >= 4) begin 
+                        for (i = 0; i < 4; i = i + 1) begin
+                            if ((in[i*8+:8] == 8'h7C) || (in[i*8+:8] == 8'hFC)) begin
+                                if ((last_octet == 8'h7C) || (last_octet == 8'hFC))
+                                    ifs_out[i*8+:8] <= last_octet_2;
+                                else 
+                                    ifs_out[i*8+:8] <= last_octet;
+                            end else
+                                ifs_out[i*8+:8] <= in[i*8+:8];    
+                            // save the octet of previous frame
+                            if (eof[i]) begin
+                                last_octet <= in[i*8+:8];
+                                last_octet_2 <= last_octet;
+                            end
+                        end
+                    end else if (OCTETS_PER_FR == 3) begin
+                        for (i = 0; i < 4; i = i + 1) begin 
+                            if ((in[i*8+:8] == 8'h7C) || (in[i*8+:8] == 8'hFC)) begin
+                                if (i == 3) begin 
+                                    if ((in[7:0] == 8'h7C) || (in[7:0] == 8'hFC))
+                                        ifs_out[i*8+:8] <= last_octet;
+                                    else 
+                                        ifs_out[i*8+:8] <= in[7:0];    
+                                end else if ((last_octet == 8'h7C) || (last_octet == 8'hFC))
+                                    ifs_out[i*8+:8] <= last_octet_2;
+                                else 
+                                    ifs_out[i*8+:8] <= last_octet;
+                            end else
+                                ifs_out[i*8+:8] <= in[i*8+:8];    
+                            // save the octet of previous frame
+                            if (eof[i]) begin
+                                if ((i !== 0) && (i !== 3)) begin
+                                    last_octet <= in[i*8+:8];
+                                    last_octet_2 <= last_octet;
+                                end else begin 
+                                    last_octet <= in[31:24];
+                                    last_octet_2 <= in[7:0];
+                                end
+                            end
+                        end
+                    end else if (OCTETS_PER_FR == 2) begin
+                        for (i = 0; i < 4; i = i + 1) begin 
+                            if ((in[i*8+:8] == 8'h7C) || (in[i*8+:8] == 8'hFC)) begin
+                                if (i == 1) begin 
+                                    if ((last_octet == 8'h7C) || (last_octet == 8'hFC))
+                                        ifs_out[i*8+:8] <= last_octet_2;
+                                    else 
+                                        ifs_out[i*8+:8] <= last_octet;
+                                end else if (i == 3) begin
+                                    if ((in[15:8] == 8'h7C) || (in[15:8] == 8'hFC))
+                                        ifs_out[i*8+:8] <= last_octet;
+                                    else 
+                                        ifs_out[i*8+:8] <= in[15:8];
+                                end
+                            end else 
+                                ifs_out[i*8+:8] <= in[i*8+:8];    
+                            // save the octet of previous frame
+                            if (eof[i]) begin
+                                last_octet <= in[31:24];
+                                last_octet_2 <= in[15:8];
+                            end
                         end
                     end
                 // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
