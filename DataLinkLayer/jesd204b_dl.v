@@ -24,8 +24,8 @@ module jesd204b_dl #(
     parameter LANE_DATA_WIDTH = 32,
     parameter OCTET_PER_SENT = 4,
     parameter LANES = 1,
-    parameter OCTETS_PER_FR = 5, 
-    parameter FRAMES_PER_MF = 5
+    parameter OCTETS_PER_FR = 2, 
+    parameter FRAMES_PER_MF = 10
     )(
     input clk,
     input reset,
@@ -132,8 +132,8 @@ module jesd204b_dl #(
     .clk (clk),
     .reset (reset),
     .LMFC (LMFC_about_to_rise_2),
-    .eof_h2 (eof_h),
-    .eom_h2 (eom_h),
+    .eof_h (eof_h),
+    .eom_h (eom_h),
     .sof (sof),
     .eof (eof),
     .som (som),
