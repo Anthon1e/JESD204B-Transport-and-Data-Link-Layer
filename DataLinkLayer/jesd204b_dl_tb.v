@@ -24,8 +24,8 @@ module jesd204b_dl_tb #(
     parameter LANE_DATA_WIDTH = 32,
     parameter OCTET_PER_SENT = 4,
     parameter LANES = 1,
-    parameter OCTETS_PER_FR = 5,
-    parameter FRAMES_PER_MF = 4
+    parameter OCTETS_PER_FR = 2,
+    parameter FRAMES_PER_MF = 10
     );
     
     reg clock, reset, scramble_enable;
@@ -84,7 +84,7 @@ module jesd204b_dl_tb #(
         in_config <= 112'h77_77_77_77_88_88_88_88_77_77_77_77_88_88; 
         #120;
         reset <= 0;
-        #1000;
+        #1500;
         $stop;
     end
 endmodule
