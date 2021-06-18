@@ -175,7 +175,7 @@ module jesd204b_dl_tx #(
     reg [4:0] octet_count_fr;
     reg [3:0] ud_ctrl_out, last_one_replaced;
     reg [LANE_DATA_WIDTH-1:0] ud_out, next_ud_out;
-    reg ud_turn;
+    reg ud_turn, two_rp, four_rp;
     integer i;
     always @(posedge clk) begin
         if (~ILAS_done) begin
@@ -185,34 +185,138 @@ module jesd204b_dl_tx #(
             eindex_out <= 0;
             octet_count_fr <= 0;
             last_one_replaced <= 0;
+            two_rp <= 0;
+            four_rp <= 1;
             next_ud_out <= ebuffer[eindex_out];
         end else begin
             ud_turn <= 1;
             // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
             case (scramble_enable)
             'b0: begin 
-                for (i = 0; i < 4; i = i + 1) begin 
-                    if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin 
-                        ud_out[i*8+:8] <= 8'h7C;
-                        ud_ctrl_out[i] <= 1;
-                        last_one_replaced[i] <= 1'b1;
-                    end else if (eof[i] && ~(|last_one_replaced) && (data_prev_AF == next_ud_out[i*8+:8])) begin
-                        ud_out[i*8+:8] <= 8'hFC;
-                        ud_ctrl_out[i] <= 1; 
-                        last_one_replaced[i] <= 1'b1;
-                    end else if (~(|eof)) begin 
-                        ud_out[i*8+:8] <= next_ud_out[i*8+:8];
-                        ud_ctrl_out[i] <= 0;
-                        last_one_replaced[i] <= last_one_replaced[i];
-                    end else begin 
-                        ud_out[i*8+:8] <= next_ud_out[i*8+:8];
-                        ud_ctrl_out[i] <= 0;
-                        last_one_replaced[i] <= 1'b0;
+                if (OCTETS_PER_FR == 2) begin
+                    for (i = 0; i < 4; i = i + 1) begin 
+                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                            ud_out[i*8+:8] <= 8'h7C;
+                            ud_ctrl_out[i] <= 1; 
+                            if (i == 1) begin 
+                                {two_rp, four_rp} <= 2'b10;
+                            end else begin 
+                                {two_rp, four_rp} <= 2'b01;
+                            end
+                        end else if (eof[i] && ~(eom[1] && (data_prev_AF == next_ud_out[15:8]))) begin
+                            if (two_rp) begin 
+                                if (data_prev_AF == next_ud_out[15:8]) begin
+                                    if (i == 1) begin 
+                                        ud_out[i*8+:8] <= 8'hFC;
+                                        ud_ctrl_out[i] <= 1;
+                                        {two_rp, four_rp} <= 2'b10;
+                                    end else begin 
+                                        ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                        ud_ctrl_out[i] <= 0;
+                                    end
+                                end else if (data_prev_AF !== next_ud_out[15:8]) begin
+                                    if (i == 1) begin 
+                                        ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                        ud_ctrl_out[i] <= 0;
+                                    end else begin 
+                                        if (next_ud_out[31:24] == next_ud_out[15:8]) begin 
+                                            ud_out[i*8+:8] <= 8'hFC;
+                                            ud_ctrl_out[i] <= 1;
+                                            {two_rp, four_rp} <= 2'b01;
+                                        end else begin 
+                                            ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                            ud_ctrl_out[i] <= 0;
+                                        end 
+                                    end 
+                                end 
+                            end else if (four_rp) begin 
+                                if (i == 1) begin 
+                                    ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                    ud_ctrl_out[i] <= 0;
+                                end else if (next_ud_out[31:24] == next_ud_out[15:8]) begin 
+                                    ud_out[i*8+:8] <= 8'hFC;
+                                    ud_ctrl_out[i] <= 1;
+                                end else begin 
+                                    ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                    ud_ctrl_out[i] <= 0;
+                                end
+                            end
+                        end else begin 
+                            ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                            ud_ctrl_out[i] <= 0;
+                        end 
+                        // save the octet of previous frame
+                        data_prev_AF <= next_ud_out[31:24];
                     end
-                    // save the octet of previous frame
-                    if (eof[i])
-                        data_prev_AF <= next_ud_out[i*8+:8];
-                end
+                end else if (OCTETS_PER_FR == 3) begin
+                    for (i = 0; i < 4; i = i + 1) begin 
+                        if (eom[i]) begin 
+                            if ((i !== 3) && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                                ud_out[i*8+:8] <= 8'h7C;
+                                ud_ctrl_out[i] <= 1;
+                                last_one_replaced[i] <= 1;
+                            end else if ((i == 3) && (next_ud_out[31:24] == next_ud_out[7:0])) begin 
+                                ud_out[i*8+:8] <= 8'h7C;
+                                ud_ctrl_out[i] <= 1;
+                                last_one_replaced[i] <= 1;
+                            end else begin 
+                                ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                ud_ctrl_out[i] <= 0;
+                                last_one_replaced[i] <= 1'b0;
+                            end 
+                        end else if (eof[i] && ~(eom[0] && (data_prev_AF == next_ud_out[7:0]))) begin 
+                            if ((i == 3) && (next_ud_out[31:24] == next_ud_out[7:0])) begin
+                                if ((next_ud_out[7:0] == data_prev_AF) && ~(|last_one_replaced)) begin
+                                    ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                    ud_ctrl_out[i] <= 0;
+                                    last_one_replaced[i] <= 1'b0;
+                                end else begin 
+                                    ud_out[i*8+:8] <= 8'hFC;
+                                    ud_ctrl_out[i] <= 1; 
+                                    last_one_replaced[i] <= 1'b1;
+                                end
+                            end else if ((i !== 3) && ~(|last_one_replaced[3:1]) && (data_prev_AF == next_ud_out[i*8+:8])) begin
+                                ud_out[i*8+:8] <= 8'hFC;
+                                ud_ctrl_out[i] <= 1; 
+                                last_one_replaced[i] <= 1'b1;                                        
+                            end else begin 
+                                ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                                ud_ctrl_out[i] <= 0;
+                                last_one_replaced[i] <= 1'b0;
+                            end
+                        end else begin 
+                            ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                            ud_ctrl_out[i] <= 0;
+                            last_one_replaced[i] <= 1'b0;
+                        end
+                        // save the octet of previous frame
+                        if (eof[i] && (i !== 0))
+                            data_prev_AF <= next_ud_out[i*8+:8];
+                    end
+                end else if (OCTETS_PER_FR >= 4) begin 
+                    for (i = 0; i < 4; i = i + 1) begin 
+                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                            ud_out[i*8+:8] <= 8'h7C;
+                            ud_ctrl_out[i] <= 1;
+                            last_one_replaced[i] <= 1'b1;
+                        end else if (eof[i] && ~(|last_one_replaced) && (data_prev_AF == next_ud_out[i*8+:8])) begin
+                            ud_out[i*8+:8] <= 8'hFC;
+                            ud_ctrl_out[i] <= 1; 
+                            last_one_replaced[i] <= 1'b1;
+                        end else if (~(|eof)) begin 
+                            ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                            ud_ctrl_out[i] <= 0;
+                            last_one_replaced[i] <= last_one_replaced[i];
+                        end else begin 
+                            ud_out[i*8+:8] <= next_ud_out[i*8+:8];
+                            ud_ctrl_out[i] <= 0;
+                            last_one_replaced[i] <= 1'b0;
+                        end
+                        // save the octet of previous frame
+                        if (eof[i])
+                            data_prev_AF <= next_ud_out[i*8+:8];
+                    end
+                end 
             end
             // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
             'b1: begin
