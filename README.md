@@ -4,7 +4,7 @@ This is my personal project for an implementation of JESD204B transport layer an
 
 ## About JESD204B
 
-This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer, the optional Scramber/Descrambler block and the 8B/10B Encode in the Data Link Layer. Note that, there are still more to the Data Link Layer which deals with synchronization and alignment (CGS, ILAS, IFAS), but those are not ready and are still under-developed.
+This is a serialized interface between data converters (ADC/DAC) and logic devices (FPGA/ASIC). To further understand, this device specification has been divided into layers, including Application Layer, Transport Layer, Data Link Layer and Physical Layer. This repository will focus on the Transport Layer, the optional Scramber/Descrambler block and the 8B/10B Encode in the Data Link Layer. The section in Data Link Layer which deals with synchronization and alignment (CGS, ILAS, IFAS), are also developed but are left separately in another folder. This is because I am not sure what user data from an ADC would look like to write test cases accurately enough for the simulation. However, the implementation would still work for any inputs. 
 
 ## JESD204B Transport Layer
 
@@ -38,6 +38,14 @@ Converter resolution of 1-9 bits is supported as well, but it is usually not the
 The design assumes the sample size is 16 and each converter produces 1 sample per cycle for each frame, which is often to be the case. This limits the parameter of SAMPLE_SIZE and SAMPLES to be 16 and 1, though it can be changed in the code. Furthermore, due to these 2 constraints, values we pick for other parameters need to follow this rule:
 * (Converter resolution + Control bits) ≤ 16
 * L (# of lanes) ≤ M (# of converters)
+
+## JESD204B Code Group Synchronization, Lane/Frame Alignment, Character Replacement
+
+The main purpose of this section is to synchronize data from all lanes, such that they will start produce data at the same time. This process is called Code Group Synchronization and together with the Lane/Frame Alignment process, happens before the data gets scrambled. The receiver side will send a SYNC~ signal to the transmitter, telling it to start producing a series of control character "K". When the lanes have received 4 "K"s in a row, they will flag the receiver. Once all the flags are set, receiver will produce data from Lane/Frame Alignment process on all lanes at the same time. In order to prevent loss of data while waiting for all flags, an elastic buffer is used on each lane to hold its data.
+
+Then, the transmitter will send out 4 multi-frames in order to mark end of frame and multi-frame for the alignment process. All of these multi-frames start with control character "R" and ends with control character "A". The second multi-frame is the one that holds the data for link configuration, which has in total 14 octets. To mark this, we use control character "Q" for the 2nd octet in the transmitted multi-frame.
+
+The last process is character replacement for user data. On the transmitter side, if the last octet of the current frame equals the last octet of the previous frame, it would replace that octet with the control character "F", to mark the end of a frame. If the last octet of the current multi-frame equals the last octet of the previous frame, then the transmitter would replace that octet with the control character "A" instead, to mark the end of a multi-frame. If the previous octet is already replaced with a control character, then the next octet cannot be replaced anymore, unless it is the end of a multi-frame. Upon receiving character "F" and "A", the receiver should replace it with the value of previous octet.  
 
 ## JESD204B Scrambler/Descrambler
 
