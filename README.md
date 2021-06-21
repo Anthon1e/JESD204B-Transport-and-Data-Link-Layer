@@ -47,6 +47,10 @@ Then, the transmitter will send out 4 multi-frames in order to mark end of frame
 
 The last process is character replacement for user data. On the transmitter side, if the last octet of the current frame equals the last octet of the previous frame, it would replace that octet with the control character "F", to mark the end of a frame. If the last octet of the current multi-frame equals the last octet of the previous frame, then the transmitter would replace that octet with the control character "A" instead, to mark the end of a multi-frame. If the previous octet is already replaced with a control character, then the next octet cannot be replaced anymore, unless it is the end of a multi-frame. Upon receiving character "F" and "A", the receiver should replace it with the value of previous octet.  
 
+### Constraints
+
+The design supports all F (# of octets per frame) and K (# of frames per multiframe) that are larger than 2, including even odd values. Since F = 1 is not very common, I decided not to spend too much time looking on this, but it is totally designable. 
+
 ## JESD204B Scrambler/Descrambler
 
 Scrambler is brought to use in the case when the data octet repeats from frame to frame, which would lead to spectral leaks causing electromagnetic interference in sensitive devices. There are many other advantages of using a scrambler, however, it can lead to some downsides which is why the choice of using a scrambler is totally optional. 
