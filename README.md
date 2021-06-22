@@ -47,9 +47,15 @@ Then, the transmitter will send out 4 multi-frames in order to mark end of frame
 
 The last process is character replacement for user data. On the transmitter side, if the last octet of the current frame equals the last octet of the previous frame, it would replace that octet with the control character "F", to mark the end of a frame. If the last octet of the current multi-frame equals the last octet of the previous frame, then the transmitter would replace that octet with the control character "A" instead, to mark the end of a multi-frame. If the previous octet is already replaced with a control character, then the next octet cannot be replaced anymore, unless it is the end of a multi-frame. Upon receiving character "F" and "A", the receiver should replace it with the value of previous octet.  
 
+### Key Features
+
+* Support 32-bit input, which is 4 octets
+* Support all K (# of frames per multi-frame)
+* Support all F>1 (# of octets per frame)
+
 ### Constraints
 
-The design supports all F (# of octets per frame) and K (# of frames per multiframe) that are larger than 2, including even odd values. Since F = 1 is not very common, I decided not to spend too much time looking on this, but it is totally designable. 
+According to the JEDEC specification, the 2nd multi-frame has 3 control characters R, Q, A and 14 octets for link configuration. This means we need a minimum of 17 octets per multi-frame, and so we need to pick F and K such that F * K >= 17
 
 ## JESD204B Scrambler/Descrambler
 
