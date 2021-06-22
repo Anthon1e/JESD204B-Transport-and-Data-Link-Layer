@@ -24,8 +24,8 @@ module jesd204b_dl #(
     parameter LANE_DATA_WIDTH = 32,
     parameter OCTET_PER_SENT = 4,
     parameter LANES = 1,
-    parameter OCTETS_PER_FR = 2, 
-    parameter FRAMES_PER_MF = 10
+    parameter OCTETS_PER_FR = 3, 
+    parameter FRAMES_PER_MF = 7
     )(
     input clk,
     input reset,
@@ -43,7 +43,7 @@ module jesd204b_dl #(
     
     localparam OCTETS_PER_MF = OCTETS_PER_FR * FRAMES_PER_MF;
     
-    wire [LANES-1:0] sync_request, ctrl_out_tx;
+    wire [4*LANES-1:0] sync_request, ctrl_out_tx;
     wire [3:0] eof_h, eom_h;
     wire sync_request_all = |sync_request;
     
@@ -101,7 +101,7 @@ module jesd204b_dl #(
         .in_config (in_config), 
         .in (in[i*LANE_DATA_WIDTH+:LANE_DATA_WIDTH]),
         .out (out_tx[i*LANE_DATA_WIDTH+:LANE_DATA_WIDTH]),
-        .ctrl_out (ctrl_out_tx[i])
+        .ctrl_out (ctrl_out_tx[4*i+:4])
         );
         
         jesd204b_dl_rx #(
