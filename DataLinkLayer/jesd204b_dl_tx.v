@@ -59,28 +59,28 @@ module jesd204b_dl_tx #(
     reg [3:0] cgs_cs, cgs_ctrl_out;
     reg [LANE_DATA_WIDTH-1:0] cgs_out;
     always @(posedge clk) begin
-        if (reset) begin 
-            CGS_done <= 0; 
+        if (reset) begin
+            CGS_done <= 0;
             cgs_cs <= `RST_T;
             cgs_out <= {4{8'hff}};
             cgs_ctrl_out <= 4'b0;
-        end else begin 
-            case (cgs_cs) 
-            `RST_T: begin 
-                if (sync_request) 
-                    cgs_cs <= `CGS_INIT; 
+        end else begin
+            case (cgs_cs)
+            `RST_T: begin
+                if (sync_request)
+                    cgs_cs <= `CGS_INIT;
                     cgs_out <= {4{8'hBC}};
                     cgs_ctrl_out <= 4'b1111;
                 end
-            `CGS_INIT: begin 
+            `CGS_INIT: begin
                 if (~sync_request) begin
                     CGS_done <= 1;
-                    cgs_cs <= `CGS_INIT; 
+                    cgs_cs <= `CGS_INIT;
                 end end
             `CGS_CHECK: begin
                 cgs_cs <= `CGS_CHECK;
                 end
-            endcase 
+            endcase
         end
     end
     
@@ -98,7 +98,7 @@ module jesd204b_dl_tx #(
     
     /* State machine for ILAS */
     reg [6:0] octet_count;
-    reg [3:0] config_octet, ilas_ctrl_out;
+    reg [3:0] ilas_ctrl_out;
     reg [1:0] mf_count;
     reg ilas_turn;
     reg [LANE_DATA_WIDTH-1:0] ilas_out;
@@ -109,8 +109,7 @@ module jesd204b_dl_tx #(
             ILAS_done <= 0;
             ilas_turn <= 0;
             octet_count <= 0;
-            mf_count <= 0; 
-            config_octet <= 0;
+            mf_count <= 0;
             ilas_ctrl_out <= 0;
         end else begin
             if (LMFC || ilas_turn) begin
@@ -121,7 +120,7 @@ module jesd204b_dl_tx #(
                     else                ilas_out <= mf0[octet_count*8+:32];
                 end else if ((octet_count+4) == OCTETS_PER_MF) begin
                     octet_count <= 0;
-                    if (mf_count == 1)  
+                    if (mf_count == 1)
                         ilas_out <= mf1[octet_count*8+:32];
                     else
                         ilas_out <= mf0[octet_count*8+:32];
@@ -131,9 +130,9 @@ module jesd204b_dl_tx #(
                         mf_count <= mf_count+1;
                 end else if ((octet_count+3) == OCTETS_PER_MF) begin
                     octet_count <= 1;
-                    if (mf_count == 0)  
+                    if (mf_count == 0)
                         ilas_out <= {mf1[0+:8], mf0[octet_count*8+:24]};
-                    else if (mf_count == 1)                
+                    else if (mf_count == 1)
                         ilas_out <= {mf0[0+:8], mf1[octet_count*8+:24]};
                     else
                         ilas_out <= {mf0[0+:8], mf0[octet_count*8+:24]};
@@ -143,9 +142,9 @@ module jesd204b_dl_tx #(
                         mf_count <= mf_count+1;
                 end else if ((octet_count+2) == OCTETS_PER_MF) begin
                     octet_count <= 2;
-                    if (mf_count == 0)  
+                    if (mf_count == 0)
                         ilas_out <= {mf1[0+:16], mf0[octet_count*8+:16]};
-                    else if (mf_count == 1)                
+                    else if (mf_count == 1)
                         ilas_out <= {mf0[0+:16], mf1[octet_count*8+:16]};
                     else
                         ilas_out <= {mf0[0+:16], mf0[octet_count*8+:16]};
@@ -155,7 +154,7 @@ module jesd204b_dl_tx #(
                         mf_count <= mf_count+1;
                 end else if ((octet_count+1) == OCTETS_PER_MF) begin
                     octet_count <= 3;
-                    if (mf_count == 0)  
+                    if (mf_count == 0)
                         ilas_out <= {mf1[0+:24], mf0[octet_count*8+:8]};
                     else if (mf_count == 1)                
                         ilas_out <= {mf0[0+:24], mf1[octet_count*8+:8]};
@@ -181,7 +180,7 @@ module jesd204b_dl_tx #(
         if (~ILAS_done) begin
             ud_turn <= 0;
             ud_out <= 0;
-            ud_ctrl_out <= 0; 
+            ud_ctrl_out <= 0;
             eindex_out <= 0;
             octet_count_fr <= 0;
             last_one_replaced <= 0;
@@ -192,99 +191,99 @@ module jesd204b_dl_tx #(
             ud_turn <= 1;
             // SCRAMBLING MODE: OFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
             case (scramble_enable)
-            'b0: begin 
+            'b0: begin
                 if (OCTETS_PER_FR == 2) begin
-                    for (i = 0; i < 4; i = i + 1) begin 
-                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                    for (i = 0; i < 4; i = i + 1) begin
+                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin
                             ud_out[i*8+:8] <= 8'h7C;
-                            ud_ctrl_out[i] <= 1; 
-                            if (i == 1) begin 
+                            ud_ctrl_out[i] <= 1;
+                            if (i == 1) begin
                                 {two_rp, four_rp} <= 2'b10;
-                            end else begin 
+                            end else begin
                                 {two_rp, four_rp} <= 2'b01;
                             end
                         end else if (eof[i] && ~(eom[1] && (data_prev_AF == next_ud_out[15:8]))) begin
-                            if (two_rp) begin 
+                            if (two_rp) begin
                                 if (data_prev_AF == next_ud_out[15:8]) begin
-                                    if (i == 1) begin 
+                                    if (i == 1) begin
                                         ud_out[i*8+:8] <= 8'hFC;
                                         ud_ctrl_out[i] <= 1;
                                         {two_rp, four_rp} <= 2'b10;
-                                    end else begin 
+                                    end else begin
                                         ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                         ud_ctrl_out[i] <= 0;
                                     end
-                                end else if (data_prev_AF !== next_ud_out[15:8]) begin
-                                    if (i == 1) begin 
+                                end else if (data_prev_AF != next_ud_out[15:8]) begin
+                                    if (i == 1) begin
                                         ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                         ud_ctrl_out[i] <= 0;
-                                    end else begin 
-                                        if (next_ud_out[31:24] == next_ud_out[15:8]) begin 
+                                    end else begin
+                                        if (next_ud_out[31:24] == next_ud_out[15:8]) begin
                                             ud_out[i*8+:8] <= 8'hFC;
                                             ud_ctrl_out[i] <= 1;
                                             {two_rp, four_rp} <= 2'b01;
-                                        end else begin 
+                                        end else begin
                                             ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                             ud_ctrl_out[i] <= 0;
-                                        end 
-                                    end 
-                                end 
-                            end else if (four_rp) begin 
-                                if (i == 1) begin 
+                                        end
+                                    end
+                                end
+                            end else if (four_rp) begin
+                                if (i == 1) begin
                                     ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                     ud_ctrl_out[i] <= 0;
-                                end else if (next_ud_out[31:24] == next_ud_out[15:8]) begin 
+                                end else if (next_ud_out[31:24] == next_ud_out[15:8]) begin
                                     ud_out[i*8+:8] <= 8'hFC;
                                     ud_ctrl_out[i] <= 1;
-                                end else begin 
+                                end else begin
                                     ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                     ud_ctrl_out[i] <= 0;
                                 end
                             end
-                        end else begin 
+                        end else begin
                             ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                             ud_ctrl_out[i] <= 0;
-                        end 
+                        end
                         // save the octet of previous frame
                         data_prev_AF <= next_ud_out[31:24];
                     end
                 end else if (OCTETS_PER_FR == 3) begin
-                    for (i = 0; i < 4; i = i + 1) begin 
-                        if (eom[i]) begin 
-                            if ((i !== 3) && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                    for (i = 0; i < 4; i = i + 1) begin
+                        if (eom[i]) begin
+                            if ((i !== 3) && (data_prev_AF == next_ud_out[i*8+:8])) begin
                                 ud_out[i*8+:8] <= 8'h7C;
                                 ud_ctrl_out[i] <= 1;
                                 last_one_replaced[i] <= 1;
-                            end else if ((i == 3) && (next_ud_out[31:24] == next_ud_out[7:0])) begin 
+                            end else if ((i == 3) && (next_ud_out[31:24] == next_ud_out[7:0])) begin
                                 ud_out[i*8+:8] <= 8'h7C;
                                 ud_ctrl_out[i] <= 1;
                                 last_one_replaced[i] <= 1;
-                            end else begin 
+                            end else begin
                                 ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                 ud_ctrl_out[i] <= 0;
                                 last_one_replaced[i] <= 1'b0;
-                            end 
-                        end else if (eof[i] && ~(eom[0] && (data_prev_AF == next_ud_out[7:0]))) begin 
+                            end
+                        end else if (eof[i] && ~(eom[0] && (data_prev_AF == next_ud_out[7:0]))) begin
                             if ((i == 3) && (next_ud_out[31:24] == next_ud_out[7:0])) begin
                                 if ((next_ud_out[7:0] == data_prev_AF) && ~(|last_one_replaced)) begin
                                     ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                     ud_ctrl_out[i] <= 0;
                                     last_one_replaced[i] <= 1'b0;
-                                end else begin 
+                                end else begin
                                     ud_out[i*8+:8] <= 8'hFC;
-                                    ud_ctrl_out[i] <= 1; 
+                                    ud_ctrl_out[i] <= 1;
                                     last_one_replaced[i] <= 1'b1;
                                 end
                             end else if ((i !== 3) && ~(|last_one_replaced[3:1]) && (data_prev_AF == next_ud_out[i*8+:8])) begin
                                 ud_out[i*8+:8] <= 8'hFC;
-                                ud_ctrl_out[i] <= 1; 
-                                last_one_replaced[i] <= 1'b1;                                        
-                            end else begin 
+                                ud_ctrl_out[i] <= 1;
+                                last_one_replaced[i] <= 1'b1;
+                            end else begin
                                 ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                                 ud_ctrl_out[i] <= 0;
                                 last_one_replaced[i] <= 1'b0;
                             end
-                        end else begin 
+                        end else begin
                             ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                             ud_ctrl_out[i] <= 0;
                             last_one_replaced[i] <= 1'b0;
@@ -293,21 +292,21 @@ module jesd204b_dl_tx #(
                         if (eof[i] && (i !== 0))
                             data_prev_AF <= next_ud_out[i*8+:8];
                     end
-                end else if (OCTETS_PER_FR >= 4) begin 
-                    for (i = 0; i < 4; i = i + 1) begin 
-                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin 
+                end else if (OCTETS_PER_FR >= 4) begin
+                    for (i = 0; i < 4; i = i + 1) begin
+                        if (eom[i] && (data_prev_AF == next_ud_out[i*8+:8])) begin
                             ud_out[i*8+:8] <= 8'h7C;
                             ud_ctrl_out[i] <= 1;
                             last_one_replaced[i] <= 1'b1;
                         end else if (eof[i] && ~(|last_one_replaced) && (data_prev_AF == next_ud_out[i*8+:8])) begin
                             ud_out[i*8+:8] <= 8'hFC;
-                            ud_ctrl_out[i] <= 1; 
+                            ud_ctrl_out[i] <= 1;
                             last_one_replaced[i] <= 1'b1;
-                        end else if (~(|eof)) begin 
+                        end else if (~(|eof)) begin
                             ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                             ud_ctrl_out[i] <= 0;
                             last_one_replaced[i] <= last_one_replaced[i];
-                        end else begin 
+                        end else begin
                             ud_out[i*8+:8] <= next_ud_out[i*8+:8];
                             ud_ctrl_out[i] <= 0;
                             last_one_replaced[i] <= 1'b0;
@@ -316,21 +315,20 @@ module jesd204b_dl_tx #(
                         if (eof[i])
                             data_prev_AF <= next_ud_out[i*8+:8];
                     end
-                end 
+                end
             end
             // SCRAMBLING MODE: ONNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
             'b1: begin
-                ud_out <= next_ud_out; 
-                if (octet_count_fr == (OCTETS_PER_MF-4)) begin
-                    if (next_ud_out[31:24] == 'h7C)
-                        ud_ctrl_out <= 4'b1000;
-                    else 
-                        ud_ctrl_out <= 4'b0;
-                end else if (next_ud_out == 'hFC)
-                    ud_ctrl_out <= 4'b1000;
-                else
-                    ud_ctrl_out <= 4'b0;
-                end 
+                ud_out <= next_ud_out;
+                for (i = 0; i < 4; i = i + 1) begin
+                    if (eom[i] && (next_ud_out[i*8+:8] == 'h7C))
+                        ud_ctrl_out[i] <= 1;
+                    else if (eof[i] && (next_ud_out[i*8+:8] == 'hFC))
+                        ud_ctrl_out[i] <= 1;
+                    else
+                        ud_ctrl_out[i] <= 0;
+                end
+            end
             endcase
             // Do this no matter the mode or case
             eindex_out <= eindex_out + 1;
